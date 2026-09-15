@@ -33,12 +33,23 @@ public struct AssistDebouncer: Sendable {
 }
 
 public extension AdviceLine {
-    /// Lines for the first two findings: the model's text where it explained that finding, else the fact.
+    static let maxLength = 40
+
+    /// Lines for the first two findings: the model's text where it explained that finding and the
+    /// text is usable, else the fact. A model line is usable when it is short enough for the strip
+    /// and contains no digits (digits mean it copied a measurement instead of phrasing it).
     static func reconcile(model: [(finding: String, text: String)]?, findings: [Finding]) -> [AdviceLine] {
-        let byID = Dictionary((model ?? []).map { ($0.finding, $0.text) }, uniquingKeysWith: { a, _ in a })
+        var byID: [String: String] = [:]
+        for l in model ?? [] {
+            let id = l.finding.trimmingCharacters(in: CharacterSet(charactersIn: "[] ")).lowercased()
+            if byID[id] == nil { byID[id] = l.text }
+        }
         return findings.prefix(2).map { f in
-            if let t = byID[f.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
-                return AdviceLine(id: f.id, text: String(t.uppercased().prefix(40)), fromModel: true)
+            if let raw = byID[f.id] {
+                let t = raw.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: ".!"))
+                if !t.isEmpty, t.count <= maxLength, t.rangeOfCharacter(from: .decimalDigits) == nil {
+                    return AdviceLine(id: f.id, text: t.uppercased(), fromModel: true)
+                }
             }
             return AdviceLine(id: f.id, text: f.fact, fromModel: false)
         }

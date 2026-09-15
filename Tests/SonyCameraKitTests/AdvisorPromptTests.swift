@@ -12,16 +12,17 @@ final class AdvisorPromptTests: XCTestCase {
         let f = [Finding(id: "face-under", kind: .exposure, severity: .warn, fact: "FACE 1 STOP UNDER", detail: "The largest face reads 28; target 55."),
                  Finding(id: "horizon", kind: .framing, severity: .info, fact: "HORIZON 2° OFF", detail: "The horizon is tilted 2.2°.")]
         let p = AdvisorPrompt.build(findings: f, measurements: m, state: s, profile: .standard, projectFPS: 24)
-        XCTAssertTrue(p.contains("mode=Manual"))
-        XCTAssertTrue(p.contains("shutter=1/50 (172.8°)"))
-        XCTAssertTrue(p.contains("iris=F2.8"))
-        XCTAssertTrue(p.contains("ei=800"))
-        XCTAssertTrue(p.contains("profile=STD"))
-        XCTAssertTrue(p.contains("face_luma=28"))
-        XCTAssertTrue(p.contains("white_clip=3%"))
-        XCTAssertTrue(p.contains("horizon=2.2°"))
-        XCTAssertTrue(p.contains("[face-under] The largest face reads 28; target 55."))
-        XCTAssertTrue(p.contains("[horizon] The horizon is tilted 2.2°."))
+        XCTAssertTrue(p.contains("Manual mode"))
+        XCTAssertTrue(p.contains("shutter 1/50 (172.8 degree angle at 24 fps)"))
+        XCTAssertTrue(p.contains("iris F2.8"))
+        XCTAssertTrue(p.contains("EI 800"))
+        XCTAssertTrue(p.contains("picture profile STD"))
+        XCTAssertTrue(p.contains("one face at 28 luma"))
+        XCTAssertTrue(p.contains("3 percent clipped white"))
+        XCTAssertTrue(p.contains("horizon tilted 2.2 degrees"))
+        XCTAssertTrue(p.contains("[face-under] Face 1 Stop Under: The largest face reads 28; target 55."))
+        XCTAssertTrue(p.contains("[horizon] Horizon 2° Off: The horizon is tilted 2.2°."))
+        XCTAssertFalse(p.contains("="), "no key=value tokens: the model's language check rejects them")
         XCTAssertLessThan(p.count, 1200, "prompt must stay small for the on-device context")
     }
     func testInstructionsForbidValues() {

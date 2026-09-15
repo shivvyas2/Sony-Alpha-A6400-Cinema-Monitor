@@ -31,12 +31,16 @@ final class AssistDebouncerTests: XCTestCase {
         XCTAssertEqual(lines, [AdviceLine(id: "a", text: "FACT A", fromModel: false),
                                AdviceLine(id: "b", text: "FACE IS A STOP UNDER, OPEN UP", fromModel: true)])
     }
-    func testReconcileTruncatesLongTextAndCapsAtTwo() {
-        let findings = [f("a"), f("b"), f("c")]
+    func testReconcileFallsBackToFactForLongOrNumericLinesAndCapsAtTwo() {
+        let findings = [f("a", fact: "FACT A"), f("b", fact: "FACT B"), f("c")]
         let long = String(repeating: "x", count: 60)
-        let lines = AdviceLine.reconcile(model: [("a", long)], findings: findings)
-        XCTAssertEqual(lines.count, 2)
-        XCTAssertEqual(lines[0].text.count, 40)
+        let lines = AdviceLine.reconcile(model: [("a", long), ("b", "face reads 12 of 55")], findings: findings)
+        XCTAssertEqual(lines, [AdviceLine(id: "a", text: "FACT A", fromModel: false),
+                               AdviceLine(id: "b", text: "FACT B", fromModel: false)])
+    }
+    func testReconcileAcceptsBracketedIdsAndStripsTrailingPeriod() {
+        let lines = AdviceLine.reconcile(model: [("[[a]]", "Face buried in shadow.")], findings: [f("a", fact: "FACT A")])
+        XCTAssertEqual(lines, [AdviceLine(id: "a", text: "FACE BURIED IN SHADOW", fromModel: true)])
     }
     func testReconcileWithNoModelIsFacts() {
         let lines = AdviceLine.reconcile(model: nil, findings: [f("a", fact: "FACT A")])
