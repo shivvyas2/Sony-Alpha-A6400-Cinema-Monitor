@@ -21,6 +21,9 @@ public struct ExposureCompensation: Sendable, Equatable {
     public var maxIndex: Int
     /// 1 = 1/3 EV steps, 2 = 1/2 EV steps
     public var stepIndex: Int
+    public init(index: Int, minIndex: Int, maxIndex: Int, stepIndex: Int) {
+        self.index = index; self.minIndex = minIndex; self.maxIndex = maxIndex; self.stepIndex = stepIndex
+    }
     public var stepEV: Double { stepIndex == 2 ? 0.5 : 1.0 / 3.0 }
     public var ev: Double { Double(index) * stepEV }
     public var label: String {
