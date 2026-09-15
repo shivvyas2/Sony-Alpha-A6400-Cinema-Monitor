@@ -7,6 +7,9 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
     private let client: SonyCameraClient
     private let stateBox = StateBox()
     private var eventVersion = "1.0"
+    let captures = CaptureBroadcaster()
+    public var saveDirectory: URL = CaptureStore.defaultBase
+    public func captureEvents() -> AsyncStream<CaptureEvent> { captures.stream() }
 
     public var displayName: String { camera.modelName.isEmpty ? camera.friendlyName : camera.modelName }
 

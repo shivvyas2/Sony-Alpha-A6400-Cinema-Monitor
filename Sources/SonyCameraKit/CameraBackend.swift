@@ -31,6 +31,8 @@ public protocol CameraBackend: AnyObject, Sendable {
     /// x, y are percentages (0…100) of the frame.
     func touchAF(x: Double, y: Double) async throws
     func cancelTouchAF() async throws
+    /// Files the camera hands over after each shot (app- or body-triggered), as they land on disk.
+    func captureEvents() -> AsyncStream<CaptureEvent>
 }
 
 public struct UnsupportedOperation: Error, LocalizedError, Sendable {

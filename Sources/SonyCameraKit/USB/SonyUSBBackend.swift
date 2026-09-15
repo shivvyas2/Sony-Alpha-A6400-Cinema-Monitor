@@ -11,6 +11,8 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
     private var props: [UInt16: SonyPropDesc] = [:]
     private var recording = false
     public var saveDirectory: URL
+    let captures = CaptureBroadcaster()
+    public func captureEvents() -> AsyncStream<CaptureEvent> { captures.stream() }
 
     public var displayName: String { model.isEmpty ? usbDevice.name : model }
 
