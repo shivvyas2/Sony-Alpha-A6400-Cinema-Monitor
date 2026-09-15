@@ -1,5 +1,6 @@
 import XCTest
 import CoreGraphics
+import CoreImage
 @testable import SonyCameraKit
 
 final class MotionInterpolatorTests: XCTestCase {
@@ -22,9 +23,12 @@ final class MotionInterpolatorTests: XCTestCase {
         return ctx.makeImage()!
     }
 
-    private func collect(_ interp: MotionInterpolator, frames: [CGImage], expected: Int, timeout: TimeInterval = 10) -> [CGImage] {
+    private let ciContext = CIContext()
+    private func cg(_ img: CIImage) -> CGImage { ciContext.createCGImage(img, from: img.extent)! }
+
+    private func collect(_ interp: MotionInterpolator, frames: [CGImage], expected: Int, timeout: TimeInterval = 10) -> [CIImage] {
         let lock = NSLock()
-        var emitted: [CGImage] = []
+        var emitted: [CIImage] = []
         let exp = expectation(description: "outputs"); exp.expectedFulfillmentCount = expected
         let t0 = CFAbsoluteTimeGetCurrent()
         for (i, f) in frames.enumerated() {
@@ -79,7 +83,7 @@ final class MotionInterpolatorTests: XCTestCase {
         let frames = (0 ..< 6).map { frame(shift: 0, noise: true, seed: UInt64($0 + 7)) }
         let before = noiseLevel(frames[5])
         let out = collect(interp, frames: frames, expected: 6)
-        let after = noiseLevel(try XCTUnwrap(out.last))
+        let after = noiseLevel(cg(try XCTUnwrap(out.last)))
         print("noise std-dev before \(before) after \(after)")
         XCTAssertLessThan(after, before * 0.7, "temporal NR should visibly reduce static grain")
     }

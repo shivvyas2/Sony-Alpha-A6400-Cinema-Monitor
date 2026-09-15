@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreImage
 import ImageIO
 import Observation
 
@@ -22,7 +23,8 @@ public final class CameraSession {
     public private(set) var state = CameraState()
     /// Generic settings for the menu (drive, metering, DRO, …), refreshed with the state.
     public private(set) var settings: [CameraSetting] = []
-    public private(set) var frame: CGImage?
+    /// Latest picture as a raw-value Core Image (no colour management applied yet; the display tags it).
+    public private(set) var frame: CIImage?
     public private(set) var frameSize: CGSize = .zero
     public private(set) var fps: Double = 0
     /// Frames per second actually arriving from the camera (before any interpolation).
@@ -38,6 +40,14 @@ public final class CameraSession {
     public private(set) var cameraName: String = ""
     public private(set) var transport: CameraTransportKind?
     public private(set) var busy = false
+    /// Shots taken this session, oldest first. Files stay on disk; the list resets on the next launch.
+    public private(set) var shotLog = ShotLog()
+    public var captures: [CapturedShot] { shotLog.shots }
+    /// The shot being reviewed full-screen (photo mode). nil = live view.
+    public var reviewShot: CapturedShot?
+    /// Where the user last clicked to check focus (fractions of the frame), used when the transport has no touch AF.
+    public var focusCheckPoint: CGPoint?
+    @ObservationIgnored private var captureTask: Task<Void, Never>?
 
     private var backend: CameraBackend?
     private var eventTask: Task<Void, Never>?
@@ -94,6 +104,7 @@ public final class CameraSession {
             phase = .live
             startStateLoop()
             startLiveview()
+            startCaptureLoop()
         } catch {
             phase = .failed(describe(error))
             await backend.disconnect()
@@ -104,6 +115,8 @@ public final class CameraSession {
     public func disconnect() {
         eventTask?.cancel(); eventTask = nil
         liveviewTask?.cancel(); liveviewTask = nil
+        captureTask?.cancel(); captureTask = nil
+        reviewShot = nil
         if let backend { Task { await backend.disconnect() } }
         backend = nil
         transport = nil
@@ -115,6 +128,30 @@ public final class CameraSession {
     }
 
     // MARK: Loops
+
+    private func startCaptureLoop() {
+        guard let backend else { return }
+        captureTask?.cancel()
+        captureTask = Task { [weak self] in
+            for await event in backend.captureEvents() {
+                guard let self, !Task.isCancelled else { return }
+                self.handle(event)
+            }
+        }
+    }
+
+    private func handle(_ event: CaptureEvent) {
+        let af = focusCheckPoint ?? state.touchAFPoint.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
+        switch shotLog.apply(event, exposure: ExposureSnapshot(state: state), afPoint: af) {
+        case .newShot(let shot):
+            reviewShot = shot           // auto review, like the body's own display
+        case .updated(let shot):
+            if reviewShot?.id == shot.id { reviewShot = shot }
+            if let e = shot.error { lastError = e }
+        case .none:
+            if case .failed(_, let message) = event { lastError = message }
+        }
+    }
 
     private func startStateLoop() {
         guard let backend else { return }
@@ -204,15 +241,15 @@ public final class CameraSession {
                     Task { @MainActor [weak self] in self?.display(out) }
                 }
             } else {
-                display(img)
+                display(CIImage(cgImage: img, options: [.colorSpace: NSNull()]))
             }
         }
         throw CancellationError()
     }
 
-    private func display(_ img: CGImage) {
+    private func display(_ img: CIImage) {
         frame = img
-        frameSize = CGSize(width: img.width, height: img.height)
+        frameSize = img.extent.size
         displayCount += 1
         let elapsed = Date().timeIntervalSince(displayWindow)
         if elapsed >= 1 { fps = Double(displayCount) / elapsed; displayCount = 0; displayWindow = Date() }
@@ -258,14 +295,27 @@ public final class CameraSession {
         if next != idx { await apply(candidates[next]) }
     }
 
-    public func autofocus() async { await perform("AF") { try await $0.autofocus() } }
-    public func takePicture() async { await perform("Shoot") { try await $0.takePicture() } }
+    public func autofocus() async {
+        reviewShot = nil
+        await perform("AF") { try await $0.autofocus() }
+    }
+    public func takePicture() async {
+        reviewShot = nil
+        await perform("Shoot") { try await $0.takePicture() }
+    }
+    public func review(_ shot: CapturedShot?) { reviewShot = shot }
+    /// Step to the previous (-1) or next (+1) shot while reviewing.
+    public func reviewNeighbor(_ offset: Int) {
+        guard let current = reviewShot, let n = shotLog.neighbor(of: current.id, offset: offset) else { return }
+        reviewShot = n
+    }
     public func toggleRecording() async {
         if state.isRecording { await perform("Stop REC") { try await $0.stopMovie() } }
         else { await perform("REC") { try await $0.startMovie() } }
     }
     /// x, y in 0...1 of the liveview image.
     public func touchAF(x: Double, y: Double) async {
+        focusCheckPoint = CGPoint(x: x, y: y)
         await perform("Touch AF") { try await $0.touchAF(x: max(0, min(100, x * 100)), y: max(0, min(100, y * 100))) }
     }
     public func cancelTouchAF() async { await perform("Touch AF") { try await $0.cancelTouchAF() } }

@@ -21,7 +21,7 @@ EXPOSURE_MODES = ["Program Auto","Aperture","Shutter","Manual"]
 SHOOT_MODES = ["still","movie"]
 APIS = ["getEvent","getVersions","getAvailableApiList","getMethodTypes","startLiveview","startLiveviewWithSize","stopLiveview",
         "setShutterSpeed","setFNumber","setIsoSpeedRate","setExposureCompensation","setWhiteBalance","setFocusMode","setExposureMode",
-        "setShootMode","actHalfPressShutter","cancelHalfPressShutter","actTakePicture","startMovieRec","stopMovieRec",
+        "setShootMode","actHalfPressShutter","cancelHalfPressShutter","actTakePicture","setPostviewImageSize","awaitTakePicture","startMovieRec","stopMovieRec",
         "setTouchAFPosition","cancelTouchAFPosition"]
 
 class Camera:
@@ -146,6 +146,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(liveview_packet(seq, render_frame(time.time() - t0))); self.wfile.flush()
                     seq += 1; time.sleep(1.0 / self.server.fps)
             except (BrokenPipeError, ConnectionResetError): pass
+        elif self.path.startswith("/postview/"):
+            body = render_frame(time.time(), 3000, 2000)
+            self.send_response(200); self.send_header("Content-Type", "image/jpeg"); self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
         else:
             self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
 
@@ -199,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
             CAM.status = "StillCapturing"; CAM.bump("cameraStatus"); time.sleep(0.4)
             CAM.shots += 1; CAM.last_pictures = [f"http://{host}/postview/{CAM.shots}.jpg"]
             CAM.status = "IDLE"; CAM.bump("cameraStatus", "numberOfShots", "takePicture"); return [CAM.last_pictures]
+        if m == "setPostviewImageSize": self.check(p[0], ["Original", "2M"]); return [0]
+        if m == "awaitTakePicture": return [CAM.last_pictures]
         if m == "startMovieRec":
             if CAM.status != "IDLE": raise ApiError(1, "Not Available Now")
             CAM.status = "MovieRecording"; CAM.rec_start = time.time(); CAM.bump("cameraStatus", "recordingTime"); return [0]
@@ -237,7 +243,9 @@ def ssdp_responder(port):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--port", type=int, default=8080); ap.add_argument("--fps", type=float, default=24); ap.add_argument("--no-ssdp", action="store_true")
+    ap.add_argument("--stills", action="store_true", help="start with the mode dial on a still position (photo mode)")
     a = ap.parse_args()
+    if a.stills: CAM.shoot_mode = "still"
     if not a.no_ssdp: threading.Thread(target=ssdp_responder, args=(a.port,), daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", a.port), Handler); srv.fps = a.fps; srv.daemon_threads = True
     print(f"camerasim: JSON-RPC at http://127.0.0.1:{a.port}/sony/camera, liveview /liveview, SSDP {'off' if a.no_ssdp else 'on'}")

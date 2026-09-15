@@ -60,6 +60,26 @@ click Discover; allow it.
 | Hide the HUD | | H |
 | Full screen | View › Enter Full Screen | ⌃⌘F |
 
+### Photo mode
+
+Turn the mode dial to a still position and the app switches to **Photo mode** (Tab forces either mode
+until the dial moves). The display follows the camera body's own LCD: mode badge, shots remaining,
+RAW+J badge and battery across the top; focus mode and area on the left; shutter, aperture, EV and ISO
+along the bottom (click or scroll to change). Sony's focus dot sits bottom-left, green when focus is
+confirmed, and a small bar next to it shows how sharp the AF region is on the live view.
+
+**Every shot is transferred to the Mac as it is taken**, whether you press the shutter in the app or on
+the camera, and saved to `~/Pictures/CinemaHUD/<yyyy-MM-dd>/` under the camera's own filename. Over USB
+both the JPEG and the RAW (ARW) arrive; on the camera set *File Format* to RAW+JPEG and
+*Still Img. Save Dest.* to **PC** or **PC+Camera**. Over Wi-Fi Sony's remote API only sends the JPEG.
+
+The moment the JPEG lands it replaces the live view for **review**: the real full-resolution image
+with a 100 % loupe on the AF point and a focus verdict (IN FOCUS / SOFT / MISSED, with a marker where
+the image is actually sharpest). Click to move the loupe, scroll to zoom, drag to pan, R switches
+between JPEG and RAW once both are in, ← / → step through the shots, Escape returns to live view.
+Return or Space fire the shutter or AF and leave review too. Thumbnails of the session's shots sit
+along the bottom of the live view.
+
 ### The monitor
 
 The layout follows a cinema viewfinder. The top strip carries exposure: FPS (project), SHUTTER
@@ -121,6 +141,27 @@ measured to match the plain path within 1/255. Nothing alters the picture unless
 the bottom strip shows **NATIVE** when no LUT, effect, denoise, interpolation or sharpening is active.
 For the most faithful view on an external monitor, use its sRGB or Rec.709 preset, or a calibrated profile.
 
+### GPU pipeline
+
+Every per-pixel stage runs on the Mac's GPU and stays there: the decoded frame is uploaded once,
+Core Image applies the LUT, false colour, zebras, peaking and rotation as one lazy graph rendered
+directly into the Metal renderer's texture, MetalFX (or Lanczos) scales it to the display, the
+optional detail pass runs as a compute kernel, and the layer is presented colour-managed. Motion
+interpolation and denoise output Metal textures that are wrapped without copying. Scopes sample a
+256×96 tile the GPU downscales. Measured on the simulator feed: enhance + LUT + waveform dropped
+from 72% to about 14% of one CPU core; motion ×4 with denoise sits near 45%, which is the optical
+flow scheduling and the 60–120 frames per second of view updates, not pixel work.
+
+### Wi-Fi performance
+
+The processing path is identical over Wi-Fi; the difference is the link. The camera's Wi-Fi
+serves the same 1024-wide JPEG stream, typically at a lower and less steady rate than USB, with
+100–300 ms of latency and occasional stalls. The app always shows the newest frame (no backlog),
+restarts the stream and re-runs the handshake automatically on a drop, and the interpolator
+adapts to whatever rate arrives. Expect fewer real frames per second than USB, more delay, and
+identical colour and tools. Stay within a few metres with line of sight; the camera's radio is
+the limit, not the Mac.
+
 ### What "true quality" means here
 
 The recording is not affected by any of this. The camera writes its full 4K or 1080p file
@@ -144,6 +185,9 @@ Connect, live view, shutter / iris / ISO stepping (lands on the nearest value th
 offers), movie record start/stop with true recording state, battery. Touch AF is Wi-Fi only.
 Still capture and half-press AF over USB are implemented but were only exercised in movie mode,
 where the body ignores them; test them in a stills mode.
+
+Photo mode: RAW+JPEG transfer, body-triggered transfer, auto review and the focus verdict have been
+exercised against the simulator only; hardware verification pending.
 
 ## Building
 

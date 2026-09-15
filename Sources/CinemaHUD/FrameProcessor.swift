@@ -20,26 +20,43 @@ final class FrameProcessor: @unchecked Sendable {
     /// Active display LUT (built-in log conversion or a loaded .cube); nil = show the feed as-is.
     var lutCube: (data: Data, dimension: Int)? {
         didSet {
-            guard let lutCube, let f = CIFilter(name: "CIColorCube") else { lutFilter = nil; return }
+            guard let lutCube, let f = CIFilter(name: "CIColorCubeWithColorSpace") else { lutFilter = nil; return }
             f.setValue(lutCube.dimension, forKey: "inputCubeDimension")
             f.setValue(lutCube.data, forKey: "inputCubeData")
+            // Log curves and .cube LUTs are defined on the camera's encoded code values, so the cube must see
+            // sRGB-encoded input rather than Core Image's linear working space.
+            f.setValue(CGColorSpace(name: CGColorSpace.sRGB)!, forKey: "inputColorSpace")
             lutFilter = f
         }
     }
     private var lutFilter: CIFilter?
 
-    func process(_ image: CGImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false) -> CGImage? {
-        guard peaking || zebra || falseColor || lutFilter != nil else { return image }
-        var src = CIImage(cgImage: image)
+    /// GPU pipeline: LUT → (false colour, zebra, peaking) → rotation, as a lazy CIImage that the Metal
+    /// renderer draws directly. Nothing is read back to the CPU.
+    func pipeline(_ image: CIImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false, rotation: Int = 0, effects: Bool = true) -> CIImage {
+        var src = image
         if let lutFilter {
             lutFilter.setValue(src, forKey: kCIInputImageKey)
             if let o = lutFilter.outputImage { src = o }
         }
         var out = src
-        if falseColor { out = applyFalseColor(to: out) }
-        if zebra { out = applyZebra(to: out, source: src, level: zebraLevel) }
-        if peaking { out = applyPeaking(to: out, source: src) }
-        return context.createCGImage(out, from: src.extent)
+        if effects {
+            if falseColor { out = applyFalseColor(to: out) }
+            if zebra { out = applyZebra(to: out, source: src, level: zebraLevel) }
+            if peaking { out = applyPeaking(to: out, source: src) }
+        }
+        if rotation != 0 {
+            let o: CGImagePropertyOrientation = rotation == 90 ? .right : (rotation == 270 ? .left : .up)
+            out = out.oriented(o)
+        }
+        return out
+    }
+
+    /// CPU-side result of the pipeline (used by tests and tethered saving), not by the live display.
+    func process(_ image: CGImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false) -> CGImage? {
+        guard peaking || zebra || falseColor || lutFilter != nil else { return image }
+        let out = pipeline(CIImage(cgImage: image), peaking: peaking, zebra: zebra, zebraLevel: zebraLevel, falseColor: falseColor)
+        return context.createCGImage(out, from: out.extent)
     }
 
     // MARK: False color (exposure bands, ARRI-style ordering: purple → blue → grey → green → pink → yellow → orange → red)
@@ -55,9 +72,10 @@ final class FrameProcessor: @unchecked Sendable {
             data[i] = c.0; data[i + 1] = c.1; data[i + 2] = c.2; data[i + 3] = 1
             i += 4
         } } }
-        guard let f = CIFilter(name: "CIColorCube") else { return nil }
+        guard let f = CIFilter(name: "CIColorCubeWithColorSpace") else { return nil }
         f.setValue(n, forKey: "inputCubeDimension")
         f.setValue(Data(bytes: data, count: data.count * MemoryLayout<Float>.size), forKey: "inputCubeData")
+        f.setValue(CGColorSpace(name: CGColorSpace.sRGB)!, forKey: "inputColorSpace")   // bands are defined on the encoded signal
         return f
     }()
 
@@ -85,26 +103,26 @@ final class FrameProcessor: @unchecked Sendable {
         return f.outputImage ?? image
     }
 
-    /// Rotates a frame for a camera mounted on its side.
-    func rotated(_ image: CGImage, degrees: Int) -> CGImage? {
-        let src = CIImage(cgImage: image)
-        let o: CGImagePropertyOrientation = degrees == 90 ? .right : (degrees == 270 ? .left : .up)
-        let out = src.oriented(o)
-        return context.createCGImage(out, from: out.extent)
-    }
-
     // MARK: Scopes
 
-    /// Downsampled RGBA pixels of the frame used by every scope.
-    private func samples(_ image: CGImage, w: Int = 256, h: Int = 96) -> [UInt8]? {
-        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+    /// Small RGBA sample of an image for the scopes: the GPU downsamples, only 256×96 pixels come back.
+    private func samples(_ image: CIImage, w: Int = 256, h: Int = 96) -> [UInt8]? {
+        let e = image.extent
+        guard e.width > 0, e.height > 0 else { return nil }
+        let scaled = image.transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
+            .transformed(by: CGAffineTransform(scaleX: CGFloat(w) / e.width, y: CGFloat(h) / e.height))
         var px = [UInt8](repeating: 0, count: w * h * 4)
-        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: cs,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.interpolationQuality = .medium
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return px
+        px.withUnsafeMutableBytes { buf in
+            context.render(scaled, toBitmap: buf.baseAddress!, rowBytes: w * 4, bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                           format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+        }
+        // Core Image renders bottom-up into the bitmap; flip rows so y = 0 is the top.
+        var flipped = [UInt8](repeating: 0, count: px.count)
+        for y in 0 ..< h { flipped.replaceSubrange(y * w * 4 ..< (y + 1) * w * 4, with: px[(h - 1 - y) * w * 4 ..< (h - y) * w * 4]) }
+        return flipped
     }
+
+    private func samples(_ image: CGImage, w: Int = 256, h: Int = 96) -> [UInt8]? { samples(CIImage(cgImage: image), w: w, h: h) }
 
     private func makeImage(_ rgba: [UInt8], width: Int, height: Int) -> CGImage? {
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -114,9 +132,15 @@ final class FrameProcessor: @unchecked Sendable {
                        decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
+    func histogram(_ image: CIImage, width: Int = 256, height: Int = 128) -> CGImage? { histogram(samples: samples(image), width: width, height: height) }
+    func parade(_ image: CIImage, width: Int = 300, height: Int = 128) -> CGImage? { parade(samples: samples(image), width: width, height: height) }
+    func vectorscope(_ image: CIImage, size: Int = 160) -> CGImage? { vectorscope(samples: samples(image), size: size) }
+    func waveform(_ image: CIImage, width: Int = 256, height: Int = 128) -> CGImage? { waveform(samples: samples(image), width: width, height: height) }
+
     /// RGB histogram: three overlaid channel histograms, 256 bins, log-scaled height.
-    func histogram(_ image: CGImage, width: Int = 256, height: Int = 128) -> CGImage? {
-        guard let px = samples(image) else { return nil }
+    func histogram(_ image: CGImage, width: Int = 256, height: Int = 128) -> CGImage? { histogram(samples: samples(image), width: width, height: height) }
+    private func histogram(samples px: [UInt8]?, width: Int, height: Int) -> CGImage? {
+        guard let px else { return nil }
         var bins = [[Int]](repeating: [Int](repeating: 0, count: 256), count: 3)
         var i = 0
         while i < px.count { bins[0][Int(px[i])] += 1; bins[1][Int(px[i + 1])] += 1; bins[2][Int(px[i + 2])] += 1; i += 4 }
@@ -139,8 +163,9 @@ final class FrameProcessor: @unchecked Sendable {
     }
 
     /// RGB parade: three waveforms side by side, one per channel.
-    func parade(_ image: CGImage, width: Int = 300, height: Int = 128) -> CGImage? {
-        guard let px = samples(image) else { return nil }
+    func parade(_ image: CGImage, width: Int = 300, height: Int = 128) -> CGImage? { parade(samples: samples(image), width: width, height: height) }
+    private func parade(samples px: [UInt8]?, width: Int, height: Int) -> CGImage? {
+        guard let px else { return nil }
         let sw = 256, sh = 96, third = width / 3
         var counts = [UInt16](repeating: 0, count: width * height)
         for y in 0 ..< sh { for x in 0 ..< sw {
@@ -167,8 +192,9 @@ final class FrameProcessor: @unchecked Sendable {
     }
 
     /// Vectorscope: chroma (Cb, Cr) plot with 75% colour targets.
-    func vectorscope(_ image: CGImage, size: Int = 160) -> CGImage? {
-        guard let px = samples(image) else { return nil }
+    func vectorscope(_ image: CGImage, size: Int = 160) -> CGImage? { vectorscope(samples: samples(image), size: size) }
+    private func vectorscope(samples px: [UInt8]?, size: Int) -> CGImage? {
+        guard let px else { return nil }
         var counts = [UInt16](repeating: 0, count: size * size)
         let c = Double(size) / 2, r = Double(size) / 2 - 2
         var i = 0
@@ -204,14 +230,10 @@ final class FrameProcessor: @unchecked Sendable {
     // MARK: Waveform scope
 
     /// Luma waveform: x = image column, y = luma. Returns a small RGBA image with a graticule at 0/50/100 IRE.
-    func waveform(_ image: CGImage, width: Int = 256, height: Int = 128) -> CGImage? {
+    func waveform(_ image: CGImage, width: Int = 256, height: Int = 128) -> CGImage? { waveform(samples: samples(image), width: width, height: height) }
+    private func waveform(samples pixels: [UInt8]?, width: Int, height: Int) -> CGImage? {
+        guard let pixels else { return nil }
         let sw = 256, sh = 96
-        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-        var pixels = [UInt8](repeating: 0, count: sw * sh * 4)
-        guard let ctx = CGContext(data: &pixels, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: sw * 4, space: cs,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.interpolationQuality = .medium
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: sw, height: sh))
         var counts = [UInt16](repeating: 0, count: width * height)
         for y in 0 ..< sh {
             for x in 0 ..< sw {
@@ -234,11 +256,7 @@ final class FrameProcessor: @unchecked Sendable {
                 out[o] = UInt8(v / 3); out[o + 1] = UInt8(v); out[o + 2] = UInt8(v / 2); out[o + 3] = 255
             }
         }
-        let data = Data(out)
-        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: cs,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider,
-                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        return makeImage(out, width: width, height: height)
     }
 
     private func luminanceMask(_ src: CIImage, threshold: Double) -> CIImage? {
@@ -252,7 +270,8 @@ final class FrameProcessor: @unchecked Sendable {
     }
 
     private func applyZebra(to base: CIImage, source: CIImage, level: Double) -> CIImage {
-        guard let mask = luminanceMask(source, threshold: level),
+        let linear = pow((level + 0.055) / 1.055, 2.4)
+        guard let mask = luminanceMask(source, threshold: linear),
               let mult = CIFilter(name: "CIMultiplyCompositing"),
               let over = CIFilter(name: "CISourceOverCompositing") else { return base }
         mult.setValue(stripes.cropped(to: source.extent), forKey: kCIInputImageKey)

@@ -6,7 +6,7 @@ struct MonitorView: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
     @State private var processor = FrameProcessor()
-    @State private var processed: CGImage?
+    @State private var processed: CIImage?
     @State private var scope: CGImage?
     @State private var afFlash = false
 
@@ -38,6 +38,7 @@ struct MonitorView: View {
         .onChange(of: overlays.lutOn) { _, _ in updateLUT(); reprocess(session.frame) }
         .onChange(of: overlays.customLUTName) { _, _ in updateLUT(); reprocess(session.frame) }
         .onChange(of: overlays.rotation) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.feedColorSpace) { _, _ in reprocess(session.frame) }
         .onAppear { updateLUT() }
     }
 
@@ -47,14 +48,9 @@ struct MonitorView: View {
             let rect = layout.rect
             ZStack {
                 Color.black
-                if let img = displayImage {
-                    Group {
-                        if overlays.enhanced {
-                            MetalFrameView(image: img, enhanced: true, sharpen: overlays.detail ? 0.35 : 0, colorSpace: overlays.feedColorSpace.cgColorSpace)
-                        } else {
-                            Image(decorative: img, scale: 1).resizable().interpolation(.high)
-                        }
-                    }
+                if let img = processed {
+                    // One GPU path for everything: Core Image chain → Metal (Lanczos or MetalFX) → colour-managed layer.
+                    MetalFrameView(image: img, enhanced: overlays.enhanced, sharpen: overlays.detail ? 0.35 : 0, colorSpace: overlays.feedColorSpace.cgColorSpace)
                     .frame(width: layout.fullSize.width, height: layout.fullSize.height)
                     .position(x: rect.midX, y: rect.midY)
                     .clipShape(Rectangle().path(in: rect))
@@ -92,25 +88,23 @@ struct MonitorView: View {
         }
     }
 
-    private var needsProcessing: Bool { overlays.peaking || overlays.zebra || overlays.falseColor || overlays.activeLUT != nil || overlays.rotation != 0 }
-    private var displayImage: CGImage? {
-        let img = needsProcessing ? processed : session.frame
-        // Re-tag (not convert) the pixels with the chosen interpretation; macOS then maps to the display profile.
-        if overlays.feedColorSpace == .rec709, let img, let tagged = img.copy(colorSpace: overlays.feedColorSpace.cgColorSpace) { return tagged }
-        return img
-    }
-
     private func updateLUT() { processor.lutCube = overlays.activeLUT }
 
-    private func reprocess(_ frame: CGImage?) {
+    /// Builds the lazy GPU pipeline for the frame (cheap: no pixels move here) and, if a scope is on,
+    /// computes it from a small GPU-downsampled tile off the main thread.
+    private func reprocess(_ frame: CIImage?) {
         guard let frame else { processed = nil; scope = nil; return }
-        let p = processor, peak = overlays.peaking, zeb = overlays.zebra, lvl = overlays.zebraLevel
-        let fc = overlays.falseColor, kind = overlays.scope, needs = needsProcessing, rot = overlays.rotation
-        Task.detached(priority: .userInitiated) {
-            var out = needs ? p.process(frame, peaking: peak, zebra: zeb, zebraLevel: lvl, falseColor: fc) : nil
-            if rot != 0, let o = out ?? frame as CGImage? { out = p.rotated(o, degrees: rot) }
-            // Scopes read the picture as displayed (after the LUT), before false colour / peaking paint on it.
-            let base: CGImage = (p.lutCube != nil ? p.process(frame, peaking: false, zebra: false, zebraLevel: 1, falseColor: false) : nil) ?? frame
+        // The frame carries raw values; interpret them as sRGB or Rec.709 (a tag, not a conversion).
+        let source = frame.matchedToWorkingSpace(from: overlays.feedColorSpace.cgColorSpace) ?? frame
+        let p = processor
+        processed = p.pipeline(source, peaking: overlays.peaking, zebra: overlays.zebra, zebraLevel: overlays.zebraLevel,
+                               falseColor: overlays.falseColor, rotation: overlays.rotation)
+        if ProcessInfo.processInfo.environment["CINEMAHUD_TRACE"] == "1" { NSLog("trace: frame %@ -> processed %@ lut=%d", NSStringFromRect(frame.extent), NSStringFromRect(processed?.extent ?? .zero), p.lutCube != nil ? 1 : 0) }
+        let kind = overlays.scope
+        guard kind != .none else { scope = nil; return }
+        // Scopes read the picture after the LUT, before effects paint on it.
+        let base = p.pipeline(source, peaking: false, zebra: false, zebraLevel: 1, falseColor: false, rotation: 0, effects: false)
+        Task.detached(priority: .utility) {
             let sc: CGImage?
             switch kind {
             case .none: sc = nil
@@ -119,7 +113,7 @@ struct MonitorView: View {
             case .histogram: sc = p.histogram(base)
             case .vector: sc = p.vectorscope(base)
             }
-            await MainActor.run { processed = out; scope = sc }
+            await MainActor.run { scope = sc }
         }
     }
 
