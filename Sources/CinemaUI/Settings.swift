@@ -93,6 +93,10 @@ public final class OverlaySettings {
     public var diagonals = false
     public var peakingColor: PeakingColor = .red
     public var showSharpnessMeter = true
+    /// Shot assist advisories over the picture (Mac video monitor). Remembered across launches.
+    public var assist: Bool = UserDefaults.standard.object(forKey: "assist") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(assist, forKey: "assist") }
+    }
 
     /// The LUT that should be applied to the feed right now, if any.
     public var activeLUT: (data: Data, dimension: Int)? {
