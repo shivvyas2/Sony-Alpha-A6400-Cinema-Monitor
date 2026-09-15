@@ -23,14 +23,24 @@ struct CinemaHUDMobileApp: App {
 struct MobileRootView: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @State private var showIntro = ProcessInfo.processInfo.environment["CINEMAHUD_NO_INTRO"] == nil
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            if session.phase.isConnected {
-                if overlays.shootingMode == .photo { PhotoView() } else { MonitorView() }
-            } else {
-                ConnectView()
+            Group {
+                if session.phase.isConnected {
+                    if overlays.shootingMode == .photo { PhotoView() } else { MonitorView() }
+                } else {
+                    ConnectView()
+                }
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.985)))
+            .animation(.easeInOut(duration: 0.5), value: session.phase.isConnected)
+            if showIntro {
+                LaunchIntroView { withAnimation(.easeOut(duration: 0.3)) { showIntro = false } }
+                    .transition(.opacity)
+                    .zIndex(1)
             }
         }
         .ignoresSafeArea(edges: .bottom)
