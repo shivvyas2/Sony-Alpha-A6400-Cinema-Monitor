@@ -8,6 +8,10 @@ import MetalPerformanceShaders
 struct MetalFrameView: NSViewRepresentable {
     var image: CGImage?
     var enhanced: Bool
+    /// Detail-recovery amount after upscaling (0 = pure reconstruction, colour and tone untouched).
+    var sharpen: Float = 0
+    /// Colour space the frame's values are in; the layer is tagged with it so macOS converts to the display profile.
+    var colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
     func makeCoordinator() -> FrameRenderer { FrameRenderer() }
 
@@ -20,6 +24,9 @@ struct MetalFrameView: NSViewRepresentable {
         v.autoResizeDrawable = true
         v.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         v.layer?.isOpaque = true
+        // Colour management: the frame is decoded into sRGB, so tell the compositor the layer is sRGB.
+        // Without this a P3 display shows the camera's colours oversaturated.
+        v.colorspace = colorSpace
         v.delegate = context.coordinator
         return v
     }
@@ -27,6 +34,8 @@ struct MetalFrameView: NSViewRepresentable {
     func updateNSView(_ v: MTKView, context: Context) {
         let r = context.coordinator
         r.enhanced = enhanced
+        r.sharpen = sharpen
+        if r.colorSpace != colorSpace { r.colorSpace = colorSpace; r.imageDirty = true; v.colorspace = colorSpace }
         if r.image !== image { r.image = image; r.imageDirty = true }
         v.needsDisplay = true
     }
@@ -41,6 +50,7 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
     var image: CGImage?
     var imageDirty = false
     var enhanced = false
+    var colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
     /// Last output size, for the HUD.
     private(set) var outputSize: CGSize = .zero
     static let outputSizeChanged = Notification.Name("CinemaHUD.outputSizeChanged")
@@ -51,8 +61,8 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
     private var scalerOutput: MTLTexture?
     private var sharpenPipeline: MTLComputePipelineState?
     private var sharpenOutput: MTLTexture?
-    /// Detail recovery after upscaling: unsharp amount (0 = off).
-    var sharpen: Float = 0.35
+    /// Detail recovery after upscaling: unsharp amount (0 = off, the default: colour and tone stay untouched).
+    var sharpen: Float = 0
 
     private static let sharpenSource = """
     #include <metal_stdlib>
@@ -146,7 +156,7 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
             scaler = nil
         }
         guard let up = upload, let input else { return }
-        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let cs = colorSpace
         let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         if let ctx = CGContext(data: up.data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr, space: cs, bitmapInfo: info) {
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))

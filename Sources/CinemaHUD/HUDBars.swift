@@ -233,6 +233,9 @@ struct BottomStrip: View {
                 item("TC", timecode(ctx.date, fps: overlays.projectFPS), tint: rec ? Theme.rec : Theme.text)
             }
             HStack(spacing: 8) {
+                if pictureIsUntouched { Text("NATIVE").font(Theme.label(9)).foregroundStyle(Theme.ok) }
+                Text(overlays.feedColorSpace.short).font(Theme.label(9)).foregroundStyle(Theme.dim)
+                if overlays.detail && overlays.enhanced { Text("DETAIL").font(Theme.label(9)).foregroundStyle(Theme.accent) }
                 if let t = session.transport { Text(t.rawValue.uppercased()).font(Theme.label(9)).foregroundStyle(Theme.dim) }
                 Text(String(format: "%.0f FPS", session.fps)).font(Theme.label(9)).foregroundStyle(Theme.dim)
                 if session.motionFactor > 1 { Text("×\(session.motionFactor) +\(Int(1000.0 / max(1, session.sourceFPS)))ms").font(Theme.label(9)).foregroundStyle(Theme.accent) }
@@ -242,6 +245,12 @@ struct BottomStrip: View {
         }
         .frame(height: 30)
         .background(Theme.field)
+    }
+
+    /// True when nothing alters the camera's picture: no LUT, effects, denoise, interpolation or sharpening.
+    private var pictureIsUntouched: Bool {
+        overlays.activeLUT == nil && !overlays.falseColor && !overlays.peaking && !overlays.zebra
+            && session.denoise == 0 && session.motionFactor == 1 && !(overlays.enhanced && overlays.detail)
     }
 
     private func item(_ label: String?, _ value: String, tint: Color = Theme.text) -> some View {

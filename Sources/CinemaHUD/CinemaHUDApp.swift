@@ -77,6 +77,10 @@ struct CinemaHUDApp: App {
                 Toggle("Settings Menu", isOn: $overlays.showMenu).keyboardShortcut("n", modifiers: [])
                 Divider()
                 Toggle("Enhanced Upscaling (MetalFX)", isOn: $overlays.enhanced).keyboardShortcut("e", modifiers: [])
+                Toggle("Detail Recovery (sharpen after upscaling)", isOn: $overlays.detail)
+                Picker("Interpret Feed As", selection: $overlays.feedColorSpace) {
+                    ForEach(FeedColorSpace.allCases) { Text($0.rawValue).tag($0) }
+                }
                 Picker("Smooth Motion (adds one frame of delay)", selection: Binding(get: { session.motionFactor }, set: { session.motionFactor = $0 })) {
                     Text("Off").tag(1); Text("×2 (30 fps)").tag(2); Text("×4 (60 fps)").tag(4); Text("×8 (120 fps)").tag(8)
                 }
@@ -172,6 +176,10 @@ final class OverlaySettings {
     var crop: CropRatio = .native
     /// MetalFX spatial upscaling of the live view to the display resolution.
     var enhanced = false
+    /// Optional detail-recovery sharpening after upscaling (off = faithful).
+    var detail = false
+    /// How the camera's feed is interpreted before macOS converts it to the display's own profile.
+    var feedColorSpace: FeedColorSpace = .sRGB
     var falseColor = false
     var waveform = false
     /// Project frame rate, used for shutter angle and the timecode frame counter.
@@ -197,6 +205,18 @@ final class OverlaySettings {
         if let customLUT { return customLUT }
         if let d = LUTBuilder.cube(for: profile) { return (d, LUTBuilder.dimension) }
         return nil
+    }
+}
+
+/// Colour interpretation of the live view. The pixel values never change; the tag tells macOS which
+/// transfer curve and primaries they are in, and macOS converts to the connected display's ICC profile.
+enum FeedColorSpace: String, CaseIterable, Identifiable {
+    case sRGB = "sRGB (camera JPEG, matches the camera's screen)"
+    case rec709 = "Rec.709 video (BT.1886 gamma, grading-monitor look)"
+    var id: String { rawValue }
+    var short: String { self == .sRGB ? "sRGB" : "709" }
+    var cgColorSpace: CGColorSpace {
+        self == .sRGB ? CGColorSpace(name: CGColorSpace.sRGB)! : CGColorSpace(name: CGColorSpace.itur_709)!
     }
 }
 
@@ -297,6 +317,8 @@ enum DevHooks {
             case "guides": overlays.frameGuides = true
             case "hidehud": overlays.hideHUD = true
             case "enhanced": overlays.enhanced = true
+            case "detail": overlays.detail = true
+            case "rec709": overlays.feedColorSpace = .rec709
             case "false": overlays.falseColor = true
             case "waveform": overlays.scope = .waveform
             case "parade": overlays.scope = .parade

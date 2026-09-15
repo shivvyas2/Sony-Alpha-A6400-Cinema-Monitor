@@ -111,6 +111,16 @@ zero wherever the two disagree, so grain averages out while moving edges stay cr
 light, NR2 strong. It costs one flow computation per frame (about 20 ms) and no extra delay.
 Like every monitor tool, it changes only what you see, not what the camera records.
 
+### Colour accuracy
+
+The monitor is colour managed end to end. The camera's live view is an sRGB JPEG; the app tags it
+as such (or as Rec.709 / BT.1886 if you choose "Interpret Feed As" in the Overlays menu) and macOS
+converts it to the connected display's ICC profile, so a P3 MacBook panel and a calibrated external
+monitor both show the same intended colours. The enhanced Metal path is tagged the same way and was
+measured to match the plain path within 1/255. Nothing alters the picture unless you switch it on:
+the bottom strip shows **NATIVE** when no LUT, effect, denoise, interpolation or sharpening is active.
+For the most faithful view on an external monitor, use its sRGB or Rec.709 preset, or a calibrated profile.
+
 ### What "true quality" means here
 
 The recording is not affected by any of this. The camera writes its full 4K or 1080p file

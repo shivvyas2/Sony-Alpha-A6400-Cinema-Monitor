@@ -50,7 +50,7 @@ struct MonitorView: View {
                 if let img = displayImage {
                     Group {
                         if overlays.enhanced {
-                            MetalFrameView(image: img, enhanced: true)
+                            MetalFrameView(image: img, enhanced: true, sharpen: overlays.detail ? 0.35 : 0, colorSpace: overlays.feedColorSpace.cgColorSpace)
                         } else {
                             Image(decorative: img, scale: 1).resizable().interpolation(.high)
                         }
@@ -93,7 +93,12 @@ struct MonitorView: View {
     }
 
     private var needsProcessing: Bool { overlays.peaking || overlays.zebra || overlays.falseColor || overlays.activeLUT != nil || overlays.rotation != 0 }
-    private var displayImage: CGImage? { needsProcessing ? processed : session.frame }
+    private var displayImage: CGImage? {
+        let img = needsProcessing ? processed : session.frame
+        // Re-tag (not convert) the pixels with the chosen interpretation; macOS then maps to the display profile.
+        if overlays.feedColorSpace == .rec709, let img, let tagged = img.copy(colorSpace: overlays.feedColorSpace.cgColorSpace) { return tagged }
+        return img
+    }
 
     private func updateLUT() { processor.lutCube = overlays.activeLUT }
 
