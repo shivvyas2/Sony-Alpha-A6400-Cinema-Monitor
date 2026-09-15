@@ -10,9 +10,21 @@ current shutter speed, aperture (iris), ISO, white balance, exposure compensatio
 and focus mode. The user can change those values, trigger autofocus, click on the
 image to set the AF point, take a still, and start/stop movie recording.
 
+## Transports
+
+Two backends behind one `CameraBackend` protocol:
+
+- **USB** (`SonyUSBBackend`): camera in "PC Remote" mode. PTP over USB bulk pipes via IOUSBHost,
+  Sony SDIO handshake (0x9201 phases 1,2,3 + 0x9202 with version 0xC8 = the pre-2020 protocol),
+  PriorityMode 0xD25A = 1 so the PC controls the body, GetAllExtDevicePropInfo 0x9209 polled every
+  250 ms for state, liveview via GetObject 0xFFFFC002 (AccessDenied = no new frame yet, poll again).
+  Shutter/iris/ISO on this protocol are "notch" controls: SetControlDevice 0x9207 with u8 0x01/0xFF
+  moves one dial click; the backend steps toward the target on a log axis and stops at the nearest
+  available value. Record: 0xD2C8 u16 2 = start, 1 = stop; 0xD21D reports the true state.
+- **Wi-Fi** (`WiFiBackend`): the Camera Remote API described below.
+
 ## Non-goals (v1)
 
-- USB tethering (PTP "PC Remote"). Different protocol; can be added later.
 - Image transfer / browsing the memory card.
 - Waveform / vectorscope. A luma histogram is optional and cheap; anything more is out.
 - App Store distribution / notarization. The DMG is ad-hoc signed.

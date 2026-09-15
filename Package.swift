@@ -7,10 +7,12 @@ let package = Package(
     products: [
         .library(name: "SonyCameraKit", targets: ["SonyCameraKit"]),
         .executable(name: "CinemaHUD", targets: ["CinemaHUD"]),
+        .executable(name: "usbprobe", targets: ["usbprobe"]),
     ],
     targets: [
         .target(name: "SonyCameraKit"),
         .executableTarget(name: "CinemaHUD", dependencies: ["SonyCameraKit"]),
+        .executableTarget(name: "usbprobe", dependencies: ["SonyCameraKit"]),
         .testTarget(name: "SonyCameraKitTests", dependencies: ["SonyCameraKit"]),
     ]
 )

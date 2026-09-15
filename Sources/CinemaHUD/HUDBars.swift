@@ -17,7 +17,8 @@ struct TopBar: View {
             .padding(.horizontal, 12).padding(.vertical, 7).hudPanel()
 
             HStack(spacing: 10) {
-                Text(session.camera?.modelName.isEmpty == false ? session.camera!.modelName : "ILCE-6400").font(Theme.mono(12, weight: .semibold))
+                Text(session.cameraName.isEmpty ? "ILCE-6400" : session.cameraName).font(Theme.mono(12, weight: .semibold))
+                if let t = session.transport { Text(t.rawValue.uppercased()).font(Theme.mono(10)).foregroundStyle(Theme.amber) }
                 Text(modeShort(s.exposureMode)).font(Theme.mono(12, weight: .bold)).foregroundStyle(Theme.amber)
                 Text(s.shootMode?.uppercased() ?? "").font(Theme.mono(11)).foregroundStyle(Theme.dim)
                 Text(statusText(s.cameraStatus)).font(Theme.mono(11)).foregroundStyle(Theme.dim)

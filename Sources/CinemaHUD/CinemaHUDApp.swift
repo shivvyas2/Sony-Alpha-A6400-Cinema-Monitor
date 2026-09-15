@@ -128,6 +128,8 @@ struct ContentView: View {
             DevHooks.apply(to: overlays)
             if let addr = ProcessInfo.processInfo.environment["CINEMAHUD_ADDRESS"], session.phase == .idle {
                 await session.connect(toAddress: addr)
+            } else if ProcessInfo.processInfo.environment["CINEMAHUD_USB"] == "1", session.phase == .idle {
+                await session.connectUSB()
             }
         }
     }

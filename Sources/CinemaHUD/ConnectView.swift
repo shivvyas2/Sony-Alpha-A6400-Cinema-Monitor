@@ -13,28 +13,48 @@ struct ConnectView: View {
                 Text("SONY α6400 REMOTE MONITOR").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.dim)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                step(1, "On the camera: MENU → Network → Ctrl w/ Smartphone → On, then Connection.")
-                step(2, "On this Mac: join the Wi-Fi named DIRECT-xxxx:ILCE-6400 (password shown on the camera).")
-                step(3, "Click Discover. If discovery fails, enter the address manually (default 192.168.122.1:8080).")
-            }
-            .frame(maxWidth: 520, alignment: .leading)
-            .padding(18)
-            .hudPanel()
-
-            HStack(spacing: 12) {
-                Button {
-                    Task { await session.discoverAndConnect() }
-                } label: {
-                    Label("Discover", systemImage: "dot.radiowaves.left.and.right").frame(width: 130)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("USB").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.amber)
+                    step(1, "On the camera: MENU → Setup → USB Connection → PC Remote.")
+                    step(2, "Connect the USB cable, then click Connect USB.")
+                    Button {
+                        Task { await session.connectUSB() }
+                    } label: {
+                        Label("Connect USB", systemImage: "cable.connector").frame(width: 150)
+                    }
+                    .buttonStyle(.borderedProminent).tint(Theme.amber).foregroundStyle(.black)
+                    .disabled(isBusy)
+                    Text("Lowest latency. Stills save to ~/Pictures/CinemaHUD when the camera's save destination is PC.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.dim)
                 }
-                .buttonStyle(.borderedProminent).tint(Theme.amber).foregroundStyle(.black)
-                .disabled(isBusy)
+                .frame(width: 300, alignment: .leading)
+                .padding(18)
+                .hudPanel()
 
-                TextField("192.168.122.1:8080", text: $address)
-                    .textFieldStyle(.roundedBorder).font(Theme.mono(13)).frame(width: 220)
-                    .onSubmit { connectManual() }
-                Button("Connect") { connectManual() }.disabled(isBusy || address.isEmpty)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("WI-FI").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.amber)
+                    step(1, "On the camera: MENU → Network → Ctrl w/ Smartphone → On, then Connection.")
+                    step(2, "On this Mac: join the Wi-Fi named DIRECT-xxxx:ILCE-6400.")
+                    HStack(spacing: 8) {
+                        Button {
+                            Task { await session.discoverAndConnect() }
+                        } label: {
+                            Label("Discover", systemImage: "dot.radiowaves.left.and.right").frame(width: 110)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isBusy)
+                        TextField("192.168.122.1:8080", text: $address)
+                            .textFieldStyle(.roundedBorder).font(Theme.mono(12)).frame(width: 160)
+                            .onSubmit { connectManual() }
+                        Button("Connect") { connectManual() }.disabled(isBusy || address.isEmpty)
+                    }
+                    Text("Wireless, plus touch-to-focus. Same live view size as USB.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.dim)
+                }
+                .frame(width: 400, alignment: .leading)
+                .padding(18)
+                .hudPanel()
             }
 
             statusLine
