@@ -30,7 +30,7 @@ struct MobileRootView: View {
             Color.black.ignoresSafeArea()
             Group {
                 if session.phase.isConnected {
-                    if overlays.shootingMode == .photo { PhotoView() } else { MonitorView() }
+                    MobileCameraView()
                 } else {
                     ConnectView()
                 }

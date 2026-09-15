@@ -76,7 +76,7 @@ public struct MobileCameraView: View {
             picture.frame(height: size.width * pictureAspectInverse)
             ScrollView {
                 VStack(spacing: 14) {
-                    exposureRow
+                    ScrollView(.horizontal, showsIndicators: false) { exposureRow.padding(.horizontal, 8).frame(maxWidth: .infinity) }
                     toolRows
                     HStack(spacing: 28) {
                         MobileToolButton(icon: "scope", label: "AF", enabled: session.state.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
@@ -115,7 +115,8 @@ public struct MobileCameraView: View {
             if let b = s.battery { Text("\(Int(b.fraction * 100))%").font(Theme.mono(11)).foregroundStyle(b.fraction < 0.15 ? Theme.rec : Theme.dim) }
             if let e = session.lastError { Text(e).font(.system(size: 10)).foregroundStyle(Theme.warn).lineLimit(1).frame(maxWidth: 160) }
         }
-        .padding(.horizontal, 12).frame(height: 40)
+        .padding(.horizontal, 12).frame(maxWidth: .infinity).frame(height: 40)
+        .clipped()
         .background(Theme.field)
     }
 

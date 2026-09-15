@@ -47,8 +47,8 @@ struct MobileReadout: View {
                     Text(label).font(Theme.label(9)).tracking(1.2).foregroundStyle(Theme.dim)
                     Text(value).font(Theme.strip(MobileMetrics.isPad ? 20 : 17)).foregroundStyle(enabled ? accent : Theme.faint).lineLimit(1).minimumScaleFactor(0.6)
                 }
-                .frame(minWidth: 64, minHeight: MobileMetrics.target)
-                .padding(.horizontal, 6)
+                .frame(minWidth: MobileMetrics.isPad ? 76 : 58, minHeight: MobileMetrics.target)
+                .padding(.horizontal, MobileMetrics.isPad ? 8 : 2)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

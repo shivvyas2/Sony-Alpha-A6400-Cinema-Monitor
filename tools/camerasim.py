@@ -22,7 +22,8 @@ SHOOT_MODES = ["still","movie"]
 APIS = ["getEvent","getVersions","getAvailableApiList","getMethodTypes","startLiveview","startLiveviewWithSize","stopLiveview",
         "setShutterSpeed","setFNumber","setIsoSpeedRate","setExposureCompensation","setWhiteBalance","setFocusMode","setExposureMode",
         "setShootMode","actHalfPressShutter","cancelHalfPressShutter","actTakePicture","setPostviewImageSize","awaitTakePicture","startMovieRec","stopMovieRec",
-        "setTouchAFPosition","cancelTouchAFPosition"]
+        "setTouchAFPosition","cancelTouchAFPosition",
+        "setStillSize","getSupportedStillSize","setMovieQuality","getSupportedMovieQuality","setMovieFileFormat","getSupportedMovieFileFormat"]
 
 class Camera:
     def __init__(self):
@@ -38,6 +39,8 @@ class Camera:
         self.rec_start = None
         self.shots = 0
         self.last_pictures = []
+        self.still = ["3:2", "L"]; self.movie_quality = "PS"; self.movie_format = "XAVC S"
+        self.zoom = 0; self.pz = False
         self.changed = set()
 
     def bump(self, *keys):
@@ -52,7 +55,11 @@ class Camera:
     def event_items(self, only=None):
         def want(k): return only is None or k in only
         items = [None] * 40
-        if want("availableApiList"): items[0] = {"type":"availableApiList","names":APIS}
+        if want("availableApiList"): items[0] = {"type":"availableApiList","names":APIS + (["actZoom"] if self.pz else [])}
+        if want("zoomInformation") and self.pz: items[2] = {"type":"zoomInformation","zoomPosition":self.zoom,"zoomNumberBox":1,"zoomIndexCurrentBox":0,"zoomPositionCurrentBox":self.zoom}
+        if want("movieQuality"): items[6] = {"type":"movieQuality","currentMovieQuality":self.movie_quality,"movieQualityCandidates":["PS","HQ","STD"]}
+        if want("movieFileFormat"): items[7] = {"type":"movieFileFormat","currentMovieFileFormat":self.movie_format,"movieFileFormatCandidates":["MP4","XAVC S"]}
+        if want("stillSize"): items[8] = {"type":"stillSize","currentAspect":self.still[0],"currentSize":self.still[1]}
         if want("cameraStatus"): items[1] = {"type":"cameraStatus","cameraStatus":self.status}
         if want("liveviewStatus"): items[3] = {"type":"liveviewStatus","liveviewStatus":True}
         if want("storageInformation"): items[10] = [{"type":"storageInformation","storageInformation":[{"numberOfRecordableImages":812,"recordableTime":47,"storageID":"Memory Card 1","storageDescription":"","recordTarget":True}]}]
@@ -205,6 +212,18 @@ class Handler(BaseHTTPRequestHandler):
             CAM.status = "IDLE"; CAM.bump("cameraStatus", "numberOfShots", "takePicture"); return [CAM.last_pictures]
         if m == "setPostviewImageSize": self.check(p[0], ["Original", "2M"]); return [0]
         if m == "awaitTakePicture": return [CAM.last_pictures]
+        if m == "getSupportedStillSize": return [[{"aspect":"3:2","size":"L"},{"aspect":"3:2","size":"M"},{"aspect":"16:9","size":"L"},{"aspect":"16:9","size":"M"}]]
+        if m == "setStillSize": CAM.still = [p[0], p[1]]; CAM.bump("stillSize"); return [0]
+        if m == "getSupportedMovieQuality": return [["PS","HQ","STD"]]
+        if m == "setMovieQuality": self.check(p[0], ["PS","HQ","STD"]); CAM.movie_quality = p[0]; CAM.bump("movieQuality"); return [0]
+        if m == "getSupportedMovieFileFormat": return [["MP4","XAVC S"]]
+        if m == "setMovieFileFormat": self.check(p[0], ["MP4","XAVC S"]); CAM.movie_format = p[0]; CAM.bump("movieFileFormat"); return [0]
+        if m == "actZoom":
+            if not CAM.pz: raise ApiError(12, "No Such Method")
+            if p[1] != "stop":
+                step = 10 if p[1] == "1shot" else 25
+                CAM.zoom = max(0, min(100, CAM.zoom + (step if p[0] == "in" else -step)))
+            CAM.bump("zoomInformation"); return [0]
         if m == "startMovieRec":
             if CAM.status != "IDLE": raise ApiError(1, "Not Available Now")
             CAM.status = "MovieRecording"; CAM.rec_start = time.time(); CAM.bump("cameraStatus", "recordingTime"); return [0]
@@ -244,8 +263,10 @@ def ssdp_responder(port):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--port", type=int, default=8080); ap.add_argument("--fps", type=float, default=24); ap.add_argument("--no-ssdp", action="store_true")
     ap.add_argument("--stills", action="store_true", help="start with the mode dial on a still position (photo mode)")
+    ap.add_argument("--pz", action="store_true", help="pretend a power-zoom lens is mounted (actZoom + zoomInformation)")
     a = ap.parse_args()
     if a.stills: CAM.shoot_mode = "still"
+    if a.pz: CAM.pz = True
     if not a.no_ssdp: threading.Thread(target=ssdp_responder, args=(a.port,), daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", a.port), Handler); srv.fps = a.fps; srv.daemon_threads = True
     print(f"camerasim: JSON-RPC at http://127.0.0.1:{a.port}/sony/camera, liveview /liveview, SSDP {'off' if a.no_ssdp else 'on'}")
