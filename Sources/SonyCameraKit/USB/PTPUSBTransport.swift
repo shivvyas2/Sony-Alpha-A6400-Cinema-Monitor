@@ -1,3 +1,4 @@
+#if canImport(IOUSBHost)
 import Foundation
 import IOKit
 import IOUSBHost
@@ -114,3 +115,5 @@ final class PTPUSBTransport: @unchecked Sendable {
         interface.destroy()
     }
 }
+
+#endif

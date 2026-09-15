@@ -1,6 +1,6 @@
 import Foundation
 
-public enum CameraTransportKind: String, Sendable { case wifi = "Wi-Fi", usb = "USB" }
+public enum CameraTransportKind: String, Sendable { case wifi = "Wi-Fi", usb = "USB", bridge = "Mac" }
 
 /// Everything `CameraSession` needs from a camera, regardless of transport.
 public protocol CameraBackend: AnyObject, Sendable {

@@ -1,3 +1,4 @@
+#if canImport(IOUSBHost)
 import Foundation
 
 public struct PTPResult: Sendable {
@@ -105,3 +106,5 @@ actor PTPDevice {
         return info
     }
 }
+
+#endif

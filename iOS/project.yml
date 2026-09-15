@@ -1,0 +1,48 @@
+name: CinemaHUDMobile
+options:
+  bundleIdPrefix: ai.lunacommunity
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  CinemaHUD:
+    path: ..
+targets:
+  CinemaHUDMobile:
+    type: application
+    platform: iOS
+    sources:
+      - path: CinemaHUDMobile
+    dependencies:
+      - package: CinemaHUD
+        product: SonyCameraKit
+      - package: CinemaHUD
+        product: CinemaUI
+    info:
+      path: CinemaHUDMobile/Info.plist
+      properties:
+        CFBundleDisplayName: CinemaHUD
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "2"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown]
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UIRequiresFullScreen: false
+        NSLocalNetworkUsageDescription: "CinemaHUD finds and controls your Sony camera, or a Mac running CinemaHUD, on the local network."
+        NSBonjourServices: ["_cinemahud._tcp"]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.9"
+        PRODUCT_BUNDLE_IDENTIFIER: ai.lunacommunity.cinemahud.mobile
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: false
+        SUPPORTS_MACCATALYST: false
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark

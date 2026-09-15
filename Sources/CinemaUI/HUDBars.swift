@@ -76,10 +76,46 @@ struct TopStrip: View {
     @Environment(OverlaySettings.self) private var overlays
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row.frame(height: 34)
+            // Narrow screens: two rows, still every readout.
+            VStack(spacing: 0) {
+                HStack(spacing: 2) { exposureReadouts(first: true); Spacer(minLength: 0) }.frame(height: 32)
+                HStack(spacing: 2) { exposureReadouts(first: false); Spacer(minLength: 0); badges }.frame(height: 32)
+            }
+        }
+        .background(Theme.field)
+    }
+
+    private var row: some View {
+        HStack(spacing: 2) {
+            exposureReadouts(first: true)
+            exposureReadouts(first: false)
+            Spacer(minLength: 4)
+            if let err = session.lastError {
+                Text(err).font(Theme.mono(10)).foregroundStyle(Theme.warn).lineLimit(1).frame(maxWidth: 320).padding(.horizontal, 6)
+            }
+            badges
+        }
+    }
+
+    private var badges: some View {
+        let s = session.state
+        return HStack(spacing: 6) {
+            Text(overlays.profile.short).font(.system(size: 9.5, weight: .bold)).foregroundStyle(overlays.profile.isLog ? Theme.accent : Theme.dim)
+            Text(modeShort(s.exposureMode)).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.text)
+                .padding(.horizontal, 5).padding(.vertical, 2).background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
+            Text(overlays.cameraIndex).font(.system(size: 15, weight: .bold)).foregroundStyle(Color.black)
+                .frame(width: 24, height: 24).background(Theme.text, in: RoundedRectangle(cornerRadius: 3))
+        }
+        .padding(.trailing, 8)
+    }
+
+    @ViewBuilder private func exposureReadouts(first: Bool) -> some View {
         @Bindable var ov = overlays
         let s = session.state
         let fpsChoices = ["24", "25", "30", "48", "50", "60"]
-        HStack(spacing: 2) {
+        if first {
             StripReadout(label: "FPS", value: String(format: "%d.000", overlays.projectFPS), candidates: fpsChoices,
                          onSelect: { v in if let f = Int(v) { ov.projectFPS = f } },
                          onStep: { d in if let i = fpsChoices.firstIndex(of: "\(ov.projectFPS)") { ov.projectFPS = Int(fpsChoices[max(0, min(fpsChoices.count - 1, i + d))])! } })
@@ -95,6 +131,7 @@ struct TopStrip: View {
             StripReadout(label: "EI", value: s.iso ?? "--", candidates: s.isoCandidates, enabled: s.supports("setIsoSpeedRate"),
                          onSelect: { v in Task { await session.setISO(v) } },
                          onStep: { d in Task { await session.step(s.isoCandidates, current: s.iso, by: d) { await session.setISO($0) } } })
+        } else {
             StripReadout(label: "EV", value: s.exposureCompensation?.label ?? "--",
                          candidates: evCandidates(s.exposureCompensation),
                          enabled: s.supports("setExposureCompensation") && s.exposureCompensation != nil,
@@ -116,21 +153,7 @@ struct TopStrip: View {
                          accent: s.focusStatus == "Focused" ? Theme.ok : (s.focusStatus == "Failed" ? Theme.rec : Theme.text),
                          onSelect: { v in Task { await session.setFocusMode(v) } },
                          onStep: { d in Task { await session.step(s.focusModeCandidates, current: s.focusMode, by: d) { await session.setFocusMode($0) } } })
-            Spacer(minLength: 4)
-            if let err = session.lastError {
-                Text(err).font(Theme.mono(10)).foregroundStyle(Theme.warn).lineLimit(1).frame(maxWidth: 320).padding(.horizontal, 6)
-            }
-            HStack(spacing: 6) {
-                Text(overlays.profile.short).font(.system(size: 9.5, weight: .bold)).foregroundStyle(overlays.profile.isLog ? Theme.accent : Theme.dim)
-                Text(modeShort(s.exposureMode)).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.text)
-                    .padding(.horizontal, 5).padding(.vertical, 2).background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
-                Text(overlays.cameraIndex).font(.system(size: 15, weight: .bold)).foregroundStyle(Color.black)
-                    .frame(width: 24, height: 24).background(Theme.text, in: RoundedRectangle(cornerRadius: 3))
-            }
-            .padding(.trailing, 8)
         }
-        .frame(height: 34)
-        .background(Theme.field)
     }
 
     private func shutterAngle(_ speed: String?, fps: Int) -> String {
@@ -211,21 +234,42 @@ struct BottomStrip: View {
     @Environment(OverlaySettings.self) private var overlays
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row.frame(height: 30)
+            VStack(spacing: 0) { leftItems.frame(height: 26); rightItems.frame(height: 26) }
+        }
+        .background(Theme.field)
+    }
+
+    private var row: some View {
+        HStack(spacing: 0) { leftItems; Spacer(); recState; Spacer(); rightItems }
+    }
+
+    private var recState: some View {
+        let rec = session.state.isRecording
+        return HStack(spacing: 7) {
+            Circle().fill(rec ? Theme.rec : Theme.ok).frame(width: 9, height: 9)
+            Text(rec ? "REC" : "STBY").font(Theme.strip(13)).foregroundStyle(rec ? Theme.rec : Theme.ok)
+            if rec { Text(duration(session.state.recordingTimeSeconds)).font(Theme.strip(13)).foregroundStyle(Theme.rec) }
+        }
+        .padding(.horizontal, 10)
+    }
+
+    private var leftItems: some View {
         let s = session.state
         let rec = s.isRecording
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             item("FCL", s.focalLengthMM.map { String(format: "%.1fmm", $0) } ?? "--")
             item("PWR", s.battery.map { "\(Int($0.fraction * 100))%" } ?? "--",
                  tint: (s.battery?.fraction ?? 1) < 0.15 ? Theme.rec : Theme.text)
             item(nil, String(format: "%@_%04d  C%03d", overlays.cameraIndex, overlays.reel, max(1, session.takes + (rec ? 0 : 1))))
-            Spacer()
-            HStack(spacing: 7) {
-                Circle().fill(rec ? Theme.rec : Theme.ok).frame(width: 9, height: 9)
-                Text(rec ? "REC" : "STBY").font(Theme.strip(13)).foregroundStyle(rec ? Theme.rec : Theme.ok)
-                if rec { Text(duration(s.recordingTimeSeconds)).font(Theme.strip(13)).foregroundStyle(Theme.rec) }
-            }
-            .padding(.horizontal, 10)
-            Spacer()
+        }
+    }
+
+    private var rightItems: some View {
+        let s = session.state
+        let rec = s.isRecording
+        return HStack(spacing: 0) {
             if let m = s.recordableMinutes { item("MEDIA", String(format: "%d:%02d h", m / 60, m % 60)) }
             else if let n = s.shotsRemaining { item("MEDIA", "\(n)") }
             else { item("MEDIA", "--") }
@@ -240,11 +284,10 @@ struct BottomStrip: View {
                 Text(String(format: "%.0f FPS", session.fps)).font(Theme.label(9)).foregroundStyle(Theme.dim)
                 if session.motionFactor > 1 { Text("×\(session.motionFactor) +\(Int(1000.0 / max(1, session.sourceFPS)))ms").font(Theme.label(9)).foregroundStyle(Theme.accent) }
                 if session.denoise > 0 { Text(session.denoise > 0.6 ? "NR2" : "NR1").font(Theme.label(9)).foregroundStyle(Theme.accent) }
+                if session.bridgeActive { Text("BRIDGE").font(Theme.label(9)).foregroundStyle(Theme.ok) }
             }
             .padding(.trailing, 10)
         }
-        .frame(height: 30)
-        .background(Theme.field)
     }
 
     /// True when nothing alters the camera's picture: no LUT, effects, denoise, interpolation or sharpening.
@@ -334,9 +377,9 @@ struct RightTools: View {
             EdgeButton(title: "AF", enabled: s.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
             EdgeButton(title: "AEL") { Task { await session.press(.aeLock) } }
             HStack(spacing: 3) {
-                EdgeButton(title: "◀ NEAR", enabled: session.transport == .usb) { Task { await session.focusDrive(-2) } }
+                EdgeButton(title: "◀ NEAR", enabled: session.focusDriveAvailable) { Task { await session.focusDrive(-2) } }
             }
-            EdgeButton(title: "FAR ▶", enabled: session.transport == .usb) { Task { await session.focusDrive(2) } }
+            EdgeButton(title: "FAR ▶", enabled: session.focusDriveAvailable) { Task { await session.focusDrive(2) } }
             EdgeButton(title: "STILL", enabled: s.supports("actTakePicture")) { Task { await session.takePicture() } }
             Spacer()
             Button { Task { await session.toggleRecording() } } label: {
@@ -379,7 +422,7 @@ struct SettingsPanel: View {
                         }
                         row("Display LUT") {
                             HStack {
-                                Toggle(overlays.customLUTName ?? (overlays.profile.isLog ? "Log → Rec.709" : "None needed"), isOn: $ov.lutOn).toggleStyle(.switch).controlSize(.mini)
+                                Toggle(overlays.customLUTName ?? (overlays.profile.isLog ? "Log → Rec.709" : "None needed"), isOn: $ov.lutOn).toggleStyle(.switch).controlSize(.small)
                                     .disabled(!(overlays.profile.isLog || overlays.customLUT != nil))
                             }
                         }
@@ -410,7 +453,7 @@ struct SettingsPanel: View {
                         HStack(spacing: 6) {
                             ForEach([(-7, "◀◀◀"), (-4, "◀◀"), (-1, "◀"), (1, "▶"), (4, "▶▶"), (7, "▶▶▶")], id: \.0) { step, label in
                                 Button(label) { Task { await session.focusDrive(step) } }.buttonStyle(.bordered).controlSize(.small)
-                                    .disabled(session.transport != .usb)
+                                    .disabled(!session.focusDriveAvailable)
                             }
                         }
                         .padding(.horizontal, 12)

@@ -52,6 +52,19 @@ public final class CameraSession {
     private var backend: CameraBackend?
     private var eventTask: Task<Void, Never>?
     private var liveviewTask: Task<Void, Never>?
+    /// Raw JPEG frames as received from the camera, for the bridge server and recorders.
+    @ObservationIgnored public let jpegFrames = Broadcaster<Data>()
+    @ObservationIgnored private let bridgeStates = Broadcaster<BridgeState>()
+    @ObservationIgnored private var bridgeServer: BridgeServer?
+    /// Share the connected camera with iPhones/iPads on the local network (Mac only).
+    public private(set) var bridgeActive = false
+    public private(set) var bridgePort: UInt16 = 0
+    /// Manual focus drive works on USB, and through a Mac bridge whose camera is on USB.
+    public var focusDriveAvailable: Bool {
+        if transport == .usb { return true }
+        if transport == .bridge, let b = backend as? BridgeBackend { return b.bridgedTransport == CameraTransportKind.usb.rawValue }
+        return false
+    }
     @ObservationIgnored private var interpolator: MotionInterpolator? = MotionInterpolator()
     @ObservationIgnored private var displayCount = 0
     @ObservationIgnored private var displayWindow = Date()
@@ -84,13 +97,20 @@ public final class CameraSession {
 
     public func connectUSB() async {
         lastError = nil
+        #if canImport(IOUSBHost)
         let devices = SonyUSBBackend.availableDevices()
         guard let dev = devices.first(where: \.isSony) ?? devices.first else {
             phase = .failed("No camera on USB. On the camera: MENU → Setup → USB Connection → PC Remote, then connect the cable.")
             return
         }
         await connect(SonyUSBBackend(device: dev))
+        #else
+        phase = .failed("USB control is not available on this device. Use the camera's Wi-Fi.")
+        #endif
     }
+
+    /// Connect to a Mac running CinemaHUD (bridge) instead of the camera directly.
+    public func connectBridge(url: URL) async { await connect(BridgeBackend(baseURL: url)) }
 
     public func connect(_ backend: CameraBackend) async {
         disconnect()
@@ -164,6 +184,7 @@ public final class CameraSession {
                     if !wasRecording && s.isRecording { self.takes += 1 }
                     let list = await backend.settings()
                     if list != self.settings { self.settings = list }
+                    if self.bridgeServer != nil, let b = self.bridgeState() { self.bridgeStates.send(b) }
                 }
                 guard let self, !Task.isCancelled else { return }
                 await self.reconnect(after: nil)
@@ -217,12 +238,14 @@ public final class CameraSession {
     }
 
     private func consume(_ frames: AsyncThrowingStream<Data, Error>) async throws {
+        let tap = jpegFrames
         // Decode off the main actor; only the finished CGImage hops back.
         let decoded = AsyncThrowingStream<CGImage, Error>(bufferingPolicy: .bufferingNewest(1)) { cont in
             let t = Task.detached(priority: .userInitiated) {
                 do {
                     for try await jpeg in frames {
                         if Task.isCancelled { break }
+                        tap.send(jpeg)
                         if let img = Self.decodeJPEG(jpeg) { cont.yield(img) }
                     }
                     cont.finish()
@@ -258,6 +281,59 @@ public final class CameraSession {
     nonisolated static func decodeJPEG(_ data: Data) -> CGImage? {
         guard let src = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
         return CGImageSourceCreateImageAtIndex(src, 0, nil)
+    }
+
+    // MARK: Bridge (Mac shares the camera with iOS devices)
+
+    private func bridgeState() -> BridgeState? {
+        guard phase.isConnected, let transport else { return nil }
+        return BridgeState(state: state, settings: settings, transport: transport, cameraName: cameraName)
+    }
+
+    public func startBridge(name: String? = nil, port: UInt16 = Bridge.defaultPort) {
+        guard bridgeServer == nil else { return }
+        let host = name ?? "CinemaHUD on \(ProcessInfo.processInfo.hostName.replacingOccurrences(of: ".local", with: ""))"
+        let server = BridgeServer(name: host, frames: jpegFrames, states: bridgeStates,
+                                  state: { [weak self] in await MainActor.run { self?.bridgeState() } },
+                                  handler: { [weak self] cmd in await self?.handleBridge(cmd) ?? BridgeReply(ok: false, error: "gone") })
+        do {
+            try server.start(port: port)
+            bridgeServer = server
+            bridgeActive = true
+            bridgePort = port
+        } catch {
+            lastError = "Bridge: \(describe(error))"
+        }
+    }
+
+    public func stopBridge() {
+        bridgeServer?.stop(); bridgeServer = nil; bridgeActive = false
+    }
+
+    private func handleBridge(_ cmd: BridgeCommand) async -> BridgeReply {
+        guard backend != nil else { return BridgeReply(ok: false, error: "no camera") }
+        lastError = nil
+        switch cmd.op {
+        case "setShutterSpeed": if let v = cmd.value { await setShutterSpeed(v) }
+        case "setFNumber": if let v = cmd.value { await setFNumber(v) }
+        case "setISO": if let v = cmd.value { await setISO(v) }
+        case "setWhiteBalance": if let v = cmd.value { await setWhiteBalance(mode: v, colorTemp: cmd.index) }
+        case "setExposureCompensation": if let i = cmd.index { await setExposureCompensation(index: i) }
+        case "setFocusMode": if let v = cmd.value { await setFocusMode(v) }
+        case "setExposureMode": if let v = cmd.value { await setExposureMode(v) }
+        case "setShootMode": if let v = cmd.value { await setShootMode(v) }
+        case "autofocus": await autofocus()
+        case "takePicture": await takePicture()
+        case "startMovie": if !state.isRecording { await toggleRecording() }
+        case "stopMovie": if state.isRecording { await toggleRecording() }
+        case "touchAF": if let x = cmd.x, let y = cmd.y { await touchAF(x: x / 100, y: y / 100) }
+        case "cancelTouchAF": await cancelTouchAF()
+        case "setSetting": if let id = cmd.value, let v = cmd.value2 { await setSetting(id, v) }
+        case "focusDrive": if let n = cmd.index { await focusDrive(n) }
+        case "press": if let v = cmd.value, let b = CameraButton(rawValue: v) { await press(b) }
+        default: return BridgeReply(ok: false, error: "unknown op \(cmd.op)")
+        }
+        return BridgeReply(ok: lastError == nil, error: lastError)
     }
 
     // MARK: Controls

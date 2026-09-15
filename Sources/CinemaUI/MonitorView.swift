@@ -2,7 +2,8 @@ import SwiftUI
 import SonyCameraKit
 
 /// Cinema monitor layout: exposure strip above, status strip below, picture between, tools on the edges.
-struct MonitorView: View {
+public struct MonitorView: View {
+    public init() {}
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
     @State private var processor = FrameProcessor()
@@ -10,7 +11,7 @@ struct MonitorView: View {
     @State private var scope: CGImage?
     @State private var afFlash = false
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             if !overlays.hideHUD { TopStrip() }
             ZStack {
@@ -99,7 +100,7 @@ struct MonitorView: View {
         let p = processor
         processed = p.pipeline(source, peaking: overlays.peaking, zebra: overlays.zebra, zebraLevel: overlays.zebraLevel,
                                falseColor: overlays.falseColor, rotation: overlays.rotation)
-        if ProcessInfo.processInfo.environment["CINEMAHUD_TRACE"] == "1" { NSLog("trace: frame %@ -> processed %@ lut=%d", NSStringFromRect(frame.extent), NSStringFromRect(processed?.extent ?? .zero), p.lutCube != nil ? 1 : 0) }
+        if ProcessInfo.processInfo.environment["CINEMAHUD_TRACE"] == "1" { NSLog("trace: frame %@ -> processed %@ lut=%d", "\(frame.extent)", "\(processed?.extent ?? .zero)", p.lutCube != nil ? 1 : 0) }
         let kind = overlays.scope
         guard kind != .none else { scope = nil; return }
         // Scopes read the picture after the LUT, before effects paint on it.

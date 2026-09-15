@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -51,3 +52,29 @@ private struct ScrollWheelCatcherHost: NSViewRepresentable {
         }
     }
 }
+
+#else
+import SwiftUI
+
+/// Touch equivalent of the scroll-wheel stepper: drag up/down over the control to step values like a dial.
+struct ScrollStepper<Content: View>: View {
+    var onStep: (Int) -> Void
+    @ViewBuilder var content: Content
+    @State private var accumulated: CGFloat = 0
+    @State private var last: CGFloat = 0
+    var body: some View {
+        content.simultaneousGesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { g in
+                    let delta = g.translation.height - last
+                    last = g.translation.height
+                    accumulated += delta
+                    let threshold: CGFloat = 22
+                    while accumulated >= threshold { accumulated -= threshold; onStep(-1) }
+                    while accumulated <= -threshold { accumulated += threshold; onStep(1) }
+                }
+                .onEnded { _ in accumulated = 0; last = 0 }
+        )
+    }
+}
+#endif

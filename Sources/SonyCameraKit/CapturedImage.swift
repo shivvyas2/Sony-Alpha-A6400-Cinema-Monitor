@@ -33,8 +33,14 @@ public enum CaptureEvent: Sendable, Equatable {
 
 /// Where captured files go on disk: `<base>/yyyy-MM-dd/<camera filename>`, never overwriting.
 public enum CaptureStore {
+    #if os(macOS)
+    static let baseDirectoryKind: FileManager.SearchPathDirectory = .picturesDirectory
+    #else
+    static let baseDirectoryKind: FileManager.SearchPathDirectory = .documentDirectory
+    #endif
+
     public static var defaultBase: URL {
-        FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("CinemaHUD")
+        FileManager.default.urls(for: Self.baseDirectoryKind, in: .userDomainMask)[0].appendingPathComponent("CinemaHUD")
     }
 
     public static func directory(base: URL, date: Date) -> URL {

@@ -189,6 +189,33 @@ where the body ignores them; test them in a stills mode.
 Photo mode: RAW+JPEG transfer, body-triggered transfer, auto review and the focus verdict have been
 exercised against the simulator only; hardware verification pending.
 
+## iPhone and iPad
+
+`iOS/CinemaHUDMobile.xcodeproj` (generated from `iOS/project.yml` with XcodeGen) builds the same
+monitor for iOS 17+ from the shared `CinemaUI` and `SonyCameraKit` modules: identical HUD, scopes,
+LUTs, enhance, motion, denoise, crops and photo mode. Touch replaces the mouse: tap a readout for
+its picker, swipe up or down on it to step like a dial, tap the picture to focus.
+
+Two ways to connect:
+
+- **Mac bridge (recommended).** iPhones and iPads cannot talk to the camera over USB, so keep the
+  camera on the Mac by USB and let the Mac share it. The Mac app advertises itself on the local
+  network as soon as a camera is connected (Camera menu → *Share Camera to iPhone / iPad*, on by
+  default). The iOS app lists Macs it finds; tap one. The Mac re-serves the camera's own JPEG
+  frames untouched plus state and every control, so the iPad sees exactly what the Mac sees with
+  USB reliability, and all processing runs on the iPad's GPU.
+- **Camera Wi-Fi directly.** Same as the Mac: Ctrl w/ Smartphone on the camera, join its network.
+  JPEG stills only; no RAW over this path.
+
+Run it: open the project in Xcode, pick a simulator or your device (select your team under
+Signing), and press Run. In the Simulator, `CINEMAHUD_ADDRESS=127.0.0.1:8080` or
+`CINEMAHUD_BRIDGE=http://127.0.0.1:8899` as scheme environment variables connect to the camera
+simulator or to the Mac app running on the same machine.
+
+Bridge protocol (plain HTTP on port 8899, Bonjour `_cinemahud._tcp`): `GET /state` (JSON),
+`GET /events` (server-sent state changes), `GET /stream` (MJPEG-style framed JPEG bytes),
+`POST /cmd` (`{"op":"setISO","value":"800"}`). Any client can use it.
+
 ## Building
 
 Requires Xcode 15+ command line tools (Swift 5.9+) and macOS 14+.
@@ -224,7 +251,10 @@ PTP_DEBUG=1 swift run usbprobe     # trace every PTP transaction
 
 - `Sources/SonyCameraKit` — protocol library. `CameraBackend` abstracts the transport; `WiFiBackend` (SSDP discovery, JSON-RPC client, liveview stream parser) and `USB/SonyUSBBackend` (IOUSBHost transport, PTP transactions, Sony SDIO handshake, property parsing, notch stepping) both feed `CameraSession`, the observable object the UI talks to.
 - `Sources/usbprobe` — command-line hardware probe for the USB path.
-- `Sources/CinemaHUD` — SwiftUI app: connect screen, monitor view with overlays, HUD bars, Core Image peaking/zebra.
+- `Sources/CinemaUI` — the shared SwiftUI monitor (Mac and iOS): connect screen, monitor and photo views, HUD strips and tools, Core Image pipeline, Metal renderer, LUTs.
+- `Sources/CinemaHUD` — the macOS app shell: menus, keyboard shortcuts, dev hooks.
+- `Sources/SonyCameraKit/Bridge` — Mac-side bridge server, iOS-side bridge client, Bonjour discovery.
+- `iOS/` — the iPhone / iPad app target.
 - `Tests/SonyCameraKitTests` — parser, event decoding, request encoding, device description parsing.
 - `tools/camerasim.py` — fake camera. `tools/probe.sh` — hardware check.
 - `scripts/build-dmg.sh` — release build, `.app` assembly, ad-hoc codesign, DMG.

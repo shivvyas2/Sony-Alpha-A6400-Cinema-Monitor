@@ -3,25 +3,25 @@ import CoreImage
 
 /// Camera picture profile the operator has set on the body. The app cannot switch it remotely on the
 /// α6400, but it tells the monitor which log curve the feed is in so the LOG button can apply the right LUT.
-enum PictureProfile: String, CaseIterable, Identifiable {
+public enum PictureProfile: String, CaseIterable, Identifiable {
     case standard = "Standard / PP1–PP6"
     case pp7 = "PP7 · S-Log2 / S-Gamut"
     case pp8 = "PP8 · S-Log3 / S-Gamut3.Cine"
     case pp9 = "PP9 · S-Log3 / S-Gamut3"
     case pp10 = "PP10 · HLG / BT.2020"
-    var id: String { rawValue }
-    var short: String {
+    public var id: String { rawValue }
+    public var short: String {
         switch self { case .standard: return "STD"; case .pp7: return "SLOG2"; case .pp8, .pp9: return "SLOG3"; case .pp10: return "HLG" }
     }
-    var isLog: Bool { self != .standard }
+    public var isLog: Bool { self != .standard }
 }
 
 /// Builds 3D LUT data for CIColorCube: either a built-in log → Rec.709 conversion or a loaded .cube file.
-enum LUTBuilder {
-    static let dimension = 33
+public enum LUTBuilder {
+    public static let dimension = 33
 
     /// Display transform for a profile (nil for Standard, which needs none).
-    static func cube(for profile: PictureProfile) -> Data? {
+    public static func cube(for profile: PictureProfile) -> Data? {
         switch profile {
         case .standard: return nil
         case .pp7: return build(curve: slog2ToLinear, matrix: sGamut3ToRec709)
@@ -92,7 +92,7 @@ enum LUTBuilder {
     }
 
     /// Parses a .cube 3D LUT (Resolve / Adobe format). Returns cube data and its dimension.
-    static func loadCube(_ url: URL) throws -> (Data, Int) {
+    public static func loadCube(_ url: URL) throws -> (Data, Int) {
         let text = try String(contentsOf: url, encoding: .utf8)
         var size = 0
         var values: [Float] = []
@@ -114,8 +114,8 @@ enum LUTBuilder {
         return (Data(bytes: values, count: values.count * 4), size)
     }
 
-    enum LUTError: LocalizedError {
+    public enum LUTError: LocalizedError {
         case unsupported(String)
-        var errorDescription: String? { if case .unsupported(let m) = self { return m }; return nil }
+        public var errorDescription: String? { if case .unsupported(let m) = self { return m }; return nil }
     }
 }

@@ -4,7 +4,8 @@ import SonyCameraKit
 
 /// Stills mode: the live view fills the window (MetalFX always on), Sony-style overlays on top,
 /// and the real capture takes over for review after each shot.
-struct PhotoView: View {
+public struct PhotoView: View {
+    public init() {}
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
     @State private var processor = FrameProcessor()
@@ -13,7 +14,7 @@ struct PhotoView: View {
     @State private var liveSharpness: Double = 0
     @State private var meter = LiveSharpnessMeter()
 
-    var body: some View {
+    public var body: some View {
         ZStack {
             Color.black
             if let shot = session.reviewShot {

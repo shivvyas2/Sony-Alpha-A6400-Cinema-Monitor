@@ -160,7 +160,7 @@ struct PhotoHUD: View {
                         } else {
                             Rectangle().fill(Color.white.opacity(0.15))
                         }
-                        if shot.transferring { ProgressView().controlSize(.mini).padding(3) }
+                        if shot.transferring { ProgressView().controlSize(.small).padding(3) }
                         else if shot.error != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn).padding(3) }
                         else if shot.hasBoth { sonyText("RAW+J", 8).padding(3) }
                     }

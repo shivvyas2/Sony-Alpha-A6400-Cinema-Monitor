@@ -26,6 +26,12 @@ public final class MotionInterpolator: @unchecked Sendable {
     private var ringIndex = 0
     /// Raw-value CIImage (no colour management) wrapping a texture; the display tags it later.
     private static let rawOptions: [CIImageOption: Any] = [.colorSpace: NSNull()]
+    /// CPU-writable texture storage: managed on macOS (discrete/unified), shared on iOS.
+    #if os(macOS)
+    private static let uploadStorage: MTLStorageMode = .managed
+    #else
+    private static let uploadStorage: MTLStorageMode = .shared
+    #endif
     private var scratch: UnsafeMutableRawPointer?
     private var scratchSize = 0
     public private(set) var lastFlowMillis: Double = 0
@@ -204,7 +210,7 @@ public final class MotionInterpolator: @unchecked Sendable {
         let fw = CVPixelBufferGetWidth(pb), fh = CVPixelBufferGetHeight(pb)
         if texFlow == nil || texFlow!.width != fw || texFlow!.height != fh {
             let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rg32Float, width: fw, height: fh, mipmapped: false)
-            d.usage = [.shaderRead]; d.storageMode = .managed
+            d.usage = [.shaderRead]; d.storageMode = Self.uploadStorage
             texFlow = device.makeTexture(descriptor: d)
         }
         guard let texFlow else { return nil }
@@ -270,7 +276,7 @@ public final class MotionInterpolator: @unchecked Sendable {
         let w = image.width, h = image.height, bpr = w * 4
         if slot == nil || slot!.width != w || slot!.height != h {
             let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
-            d.usage = [.shaderRead]; d.storageMode = .managed
+            d.usage = [.shaderRead]; d.storageMode = Self.uploadStorage
             slot = device.makeTexture(descriptor: d)
         }
         guard let tex = slot else { return nil }

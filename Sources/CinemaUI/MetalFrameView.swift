@@ -1,11 +1,19 @@
 import SwiftUI
 import MetalKit
+#if canImport(MetalFX)
 import MetalFX
+#endif
 import MetalPerformanceShaders
 
 /// Draws the live view through Metal. In enhanced mode the frame is upscaled with MetalFX's
 /// spatial scaler (edge-aware reconstruction, no added latency); otherwise Lanczos resampling.
-struct MetalFrameView: NSViewRepresentable {
+#if os(macOS)
+typealias PlatformViewRepresentable = NSViewRepresentable
+#else
+typealias PlatformViewRepresentable = UIViewRepresentable
+#endif
+
+struct MetalFrameView: PlatformViewRepresentable {
     /// Lazy Core Image pipeline output; rendered by the GPU straight into the renderer's texture.
     var image: CIImage?
     var enhanced: Bool
@@ -16,7 +24,15 @@ struct MetalFrameView: NSViewRepresentable {
 
     func makeCoordinator() -> FrameRenderer { FrameRenderer() }
 
-    func makeNSView(context: Context) -> MTKView {
+    #if os(macOS)
+    func makeNSView(context: Context) -> MTKView { makeView(context: context) }
+    func updateNSView(_ v: MTKView, context: Context) { updateView(v, context: context) }
+    #else
+    func makeUIView(context: Context) -> MTKView { makeView(context: context) }
+    func updateUIView(_ v: MTKView, context: Context) { updateView(v, context: context) }
+    #endif
+
+    private func makeView(context: Context) -> MTKView {
         let v = MTKView(frame: .zero, device: context.coordinator.device)
         v.colorPixelFormat = .bgra8Unorm
         v.framebufferOnly = false
@@ -24,21 +40,37 @@ struct MetalFrameView: NSViewRepresentable {
         v.enableSetNeedsDisplay = true
         v.autoResizeDrawable = true
         v.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        v.layer?.isOpaque = true
         // Colour management: the frame is decoded into sRGB, so tell the compositor the layer is sRGB.
         // Without this a P3 display shows the camera's colours oversaturated.
+        #if os(macOS)
+        v.layer?.isOpaque = true
         v.colorspace = colorSpace
+        #else
+        v.isOpaque = true
+        (v.layer as? CAMetalLayer)?.colorspace = colorSpace
+        #endif
         v.delegate = context.coordinator
         return v
     }
 
-    func updateNSView(_ v: MTKView, context: Context) {
+    private func updateView(_ v: MTKView, context: Context) {
         let r = context.coordinator
         r.enhanced = enhanced
         r.sharpen = sharpen
-        if r.colorSpace != colorSpace { r.colorSpace = colorSpace; r.imageDirty = true; v.colorspace = colorSpace }
+        if r.colorSpace != colorSpace {
+            r.colorSpace = colorSpace; r.imageDirty = true
+            #if os(macOS)
+            v.colorspace = colorSpace
+            #else
+            (v.layer as? CAMetalLayer)?.colorspace = colorSpace
+            #endif
+        }
         if r.image !== image { r.image = image; r.imageDirty = true }
+        #if os(macOS)
         v.needsDisplay = true
+        #else
+        v.setNeedsDisplay()
+        #endif
     }
 }
 
@@ -58,7 +90,9 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
     static let outputSizeChanged = Notification.Name("CinemaHUD.outputSizeChanged")
 
     private var input: MTLTexture?
+    #if canImport(MetalFX)
     private var scaler: MTLFXSpatialScaler?
+    #endif
     private var scalerOutput: MTLTexture?
     private var sharpenPipeline: MTLComputePipelineState?
     private var sharpenOutput: MTLTexture?
@@ -92,7 +126,11 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
     """
 
     override init() {
+        #if canImport(MetalFX)
         metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
+        #else
+        metalFXSupported = false
+        #endif
         super.init()
         if let lib = try? device.makeLibrary(source: Self.sharpenSource, options: nil), let fn = lib.makeFunction(name: "sharpen") {
             sharpenPipeline = try? device.makeComputePipelineState(function: fn)
@@ -110,7 +148,9 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
             d.usage = [.shaderRead, .shaderWrite, .renderTarget]
             d.storageMode = .private
             input = device.makeTexture(descriptor: d)
+            #if canImport(MetalFX)
             scaler = nil
+            #endif
         }
         guard let input else { return }
         if imageDirty {
@@ -122,11 +162,19 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
         }
         let dst = drawable.texture
         let useFX = enhanced && metalFXSupported && dst.width >= input.width && dst.height >= input.height
-        if useFX, let scaler = spatialScaler(inW: input.width, inH: input.height, outW: dst.width, outH: dst.height),
-           let out = scalerOutput {
-            scaler.colorTexture = input
-            scaler.outputTexture = out
-            scaler.encode(commandBuffer: cb)
+        #if canImport(MetalFX)
+        let fxScaler = useFX ? spatialScaler(inW: input.width, inH: input.height, outW: dst.width, outH: dst.height) : nil
+        #else
+        let fxScaler: AnyObject? = nil
+        #endif
+        if useFX, fxScaler != nil, let out = scalerOutput {
+            #if canImport(MetalFX)
+            if let scaler = fxScaler {
+                scaler.colorTexture = input
+                scaler.outputTexture = out
+                scaler.encode(commandBuffer: cb)
+            }
+            #endif
             var source = out
             if sharpen > 0, let sp = sharpenPipeline, let sharp = sharpenTexture(w: out.width, h: out.height), let enc = cb.makeComputeCommandEncoder() {
                 enc.setComputePipelineState(sp)
@@ -163,6 +211,7 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
         return sharpenOutput
     }
 
+    #if canImport(MetalFX)
     private func spatialScaler(inW: Int, inH: Int, outW: Int, outH: Int) -> MTLFXSpatialScaler? {
         if let s = scaler, s.inputWidth == inW, s.inputHeight == inH, s.outputWidth == outW, s.outputHeight == outH { return s }
         let d = MTLFXSpatialScalerDescriptor()
@@ -179,4 +228,5 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
         scaler = s
         return s
     }
+    #endif
 }

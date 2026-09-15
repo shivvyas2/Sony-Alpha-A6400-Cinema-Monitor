@@ -1,3 +1,4 @@
+#if canImport(IOUSBHost)
 import Foundation
 
 /// Sony camera in USB "PC Remote" mode, driven with PTP + Sony's SDIO vendor extension.
@@ -517,3 +518,5 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
     public func touchAF(x: Double, y: Double) async throws { throw UnsupportedOperation("Touch AF") }
     public func cancelTouchAF() async throws {}
 }
+
+#endif
