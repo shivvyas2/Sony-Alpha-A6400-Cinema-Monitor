@@ -11,7 +11,7 @@ struct AssistStrip: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(controller.lines) { line in
                 let fix = controller.fix(for: line.id)
-                let severity = fix == nil ? Severity.info : Severity.warn
+                let severity = controller.severity(for: line.id)
                 Button { if fix != nil { controller.apply(line.id, session: session, rotation: overlays.rotation, monitor: overlays) } } label: {
                     HStack(spacing: 6) {
                         if line.fromModel {

@@ -10,7 +10,12 @@ public final class AssistController {
     public private(set) var pendingAF: CGPoint?            // display coordinates, top-left origin
     public private(set) var applied: String?               // finding id shown as APPLIED for a moment
     public let availability: ShotAdvisorAvailability
+    public typealias Adviser = @Sendable (String) async -> [(finding: String, text: String)]?
     private let useModel: Bool
+    private let adviser: Adviser?
+    private var modelTask: Task<Void, Never>?
+    /// Minimum spacing between model calls; a change inside the window is deferred, not dropped.
+    public var modelInterval: TimeInterval = 1.5
     private var debouncer = AssistDebouncer()
     private var findings: [Finding] = []
     private var lastSignature = ""
@@ -24,11 +29,13 @@ public final class AssistController {
     public static let fadeAfter: TimeInterval = 6
     public static let modelInterval: TimeInterval = 1.5
 
-    public init(useModel: Bool = true) {
+    /// `adviser` overrides the on-device model (tests); by default the model is used when available.
+    public init(useModel: Bool = true, adviser: Adviser? = nil) {
         availability = ShotAdvisorAvailability.current
-        self.useModel = useModel && availability == .available
+        self.adviser = adviser
+        self.useModel = adviser != nil || (useModel && availability == .available)
         #if canImport(FoundationModels)
-        if self.useModel, #available(macOS 26, iOS 26, *) { ShotAdvisor.prewarm() }
+        if adviser == nil, self.useModel, #available(macOS 26, iOS 26, *) { ShotAdvisor.prewarm() }
         #endif
     }
 
@@ -58,21 +65,35 @@ public final class AssistController {
         }
         lines = AdviceLine.reconcile(model: nil, findings: findings)
         if !lines.isEmpty { lastNonEmpty = Date() }
-        guard useModel, !findings.isEmpty, Date().timeIntervalSince(lastModelCall) >= Self.modelInterval else { return }
-        lastModelCall = Date()
         generation += 1
+        guard useModel, !findings.isEmpty else { modelTask?.cancel(); return }
         let gen = generation
+        let wait = max(0, modelInterval - Date().timeIntervalSince(lastModelCall))
         let prompt = AdvisorPrompt.build(findings: findings, measurements: m, state: state, profile: profile, projectFPS: projectFPS)
         let snapshot = findings
-        Task { [weak self] in
-            #if canImport(FoundationModels)
-            guard #available(macOS 26, iOS 26, *) else { return }
-            let result = await ShotAdvisor.advise(prompt: prompt)
-            guard let self, self.generation == gen, let result else { return }
+        modelTask?.cancel()
+        modelTask = Task { [weak self] in
+            if wait > 0 {
+                try? await Task.sleep(for: .seconds(wait))
+                if Task.isCancelled { return }
+            }
+            guard let self, self.generation == gen else { return }
+            self.lastModelCall = Date()
+            let result = await self.phrase(prompt)
+            guard self.generation == gen, let result else { return }
             self.lines = AdviceLine.reconcile(model: result, findings: snapshot)
-            #endif
         }
     }
+
+    private func phrase(_ prompt: String) async -> [(finding: String, text: String)]? {
+        if let adviser { return await adviser(prompt) }
+        #if canImport(FoundationModels)
+        if #available(macOS 26, iOS 26, *) { return await ShotAdvisor.advise(prompt: prompt) }
+        #endif
+        return nil
+    }
+
+    public func severity(for id: String) -> Severity { findings.first { $0.id == id }?.severity ?? .info }
 
     /// Runs the finding's fix through the session and shows APPLIED briefly. `rotation` is the
     /// display rotation, so a focus point measured on the rotated picture reaches the camera in
