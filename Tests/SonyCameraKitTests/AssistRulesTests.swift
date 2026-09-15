@@ -80,6 +80,11 @@ final class AssistRulesTests: XCTestCase {
         let f = try XCTUnwrap(findings(face(luma: 55), s).first { $0.id == "shutter-angle" })
         XCTAssertEqual(f.fact, "SHUTTER 17°")
         XCTAssertEqual(f.fix, Fix(label: "1/500 → 1/48", command: .setShutterSpeed("1/48")))
+        XCTAssertTrue(f.detail.contains("narrower"), "the model must be told which way the angle is off")
+        var slow = s; slow.shutterSpeed = "1/30"
+        let wide = try XCTUnwrap(findings(face(luma: 55), slow).first { $0.id == "shutter-angle" })
+        XCTAssertEqual(wide.fact, "SHUTTER 288°")
+        XCTAssertTrue(wide.detail.contains("wider"))
         XCTAssertNil(findings(face(luma: 55), s, mode: .photo).first { $0.id == "shutter-angle" })
     }
     func testHorizonAndHeadroom() {

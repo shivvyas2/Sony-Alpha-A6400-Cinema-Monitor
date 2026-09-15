@@ -42,6 +42,10 @@ public final class AssistController {
         let signature = findings.map { "\($0.id):\($0.fact)" }.joined(separator: "|")
         guard signature != lastSignature else { return }
         lastSignature = signature
+        if ProcessInfo.processInfo.environment["CINEMAHUD_TRACE"] == "1" {
+            NSLog("assist: faces=%d mean=%.0f white=%.3f black=%.3f af=%.2f raw=[%@] shown=[%@]", m.faces.count, m.meanLuma, m.whiteClip, m.blackClip,
+                  m.afSharpness, raw.map(\.id).joined(separator: ","), signature)
+        }
         lines = AdviceLine.reconcile(model: nil, findings: findings)
         if !lines.isEmpty { lastNonEmpty = Date() }
         guard useModel, !findings.isEmpty, Date().timeIntervalSince(lastModelCall) >= Self.modelInterval else { return }

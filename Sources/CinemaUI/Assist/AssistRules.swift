@@ -78,7 +78,9 @@ public enum AssistRules {
             }
             out.append(Finding(id: "shutter-angle", kind: .settings, severity: .info,
                                fact: "SHUTTER \(deg > 360 ? "360+" : String(format: "%.0f", deg))°",
-                               detail: String(format: "Shutter %@ is a %.0f° angle at %d fps; 180° gives natural motion blur.", s.shutterSpeed ?? "--", deg, projectFPS),
+                               detail: String(format: "Shutter %@ is a %.0f° angle at %d fps, %@ the 180° norm; %@.", s.shutterSpeed ?? "--", deg, projectFPS,
+                                              deg < 180 ? "much narrower than" : "much wider than",
+                                              deg < 180 ? "motion will look choppy and strobed" : "motion will smear"),
                                fix: fix))
         }
 
