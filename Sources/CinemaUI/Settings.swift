@@ -93,6 +93,11 @@ public final class OverlaySettings {
     public var diagonals = false
     public var peakingColor: PeakingColor = .red
     public var showSharpnessMeter = true
+    /// Display-only mist look (0 off, 0.5 MIST1, 1 MIST2): highlights halo and skin softens on the
+    /// monitor; the camera records clean. Remembered across launches.
+    public var mist: Double = UserDefaults.standard.double(forKey: "mist") {
+        didSet { UserDefaults.standard.set(mist, forKey: "mist") }
+    }
     /// Shot assist advisories over the picture (Mac video monitor). Remembered across launches.
     public var assist: Bool = UserDefaults.standard.object(forKey: "assist") as? Bool ?? true {
         didSet { UserDefaults.standard.set(assist, forKey: "assist") }

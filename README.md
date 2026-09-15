@@ -54,6 +54,8 @@ click Discover; allow it.
 | 2× magnify | 2.00× | X |
 | Scopes: waveform, RGB parade, RGB histogram, vectorscope | SCOPE cycles | W |
 | Picture profile / LOG ↔ 709 view / custom .cube LUT | profile badge, LOG/709 button, Overlays menu | L |
+| Shot assist advisories with one-click fixes | ASSIST button, rows under the exposure strip | — |
+| Mist diffusion look (display only) | MIST button | — |
 | Enhanced upscaling (MetalFX + detail recovery) | ENH | E |
 | Smooth motion ×2 / ×4 / ×8 (30 / 60 / 120 fps) | MOTION cycles | M |
 | Live denoise NR1 / NR2 (temporal, motion-compensated) | NR cycles | D |
@@ -99,6 +101,18 @@ the Mac. Set PP7 (S-Log2), PP8/PP9 (S-Log3) or PP10 (HLG) on the camera, then te
 with the profile badge. **LOG/709** toggles between the flat feed and the built-in conversion to
 Rec.709 (S-Log3/S-Gamut3.Cine, S-Log3/S-Gamut3, S-Log2/S-Gamut, HLG/BT.2020 with a soft highlight
 roll-off). **Load .cube LUT…** applies your own 3D LUT instead. Scopes read the picture after the LUT.
+
+**Shot assist** (Mac, video): the monitor measures faces, focus, clipping and horizon on the live
+picture and shows one or two advisories under the exposure strip — "FACE 1 STOP UNDER · EI 800 → 1600",
+"FOCUS OFF SUBJECT · AF ON FACE", "SHUTTER 17° · 1/500 → 1/48" — each applied with one click. On
+macOS 26 with Apple Intelligence, the on-device model phrases them (marked AI); elsewhere the plain
+facts show. Nothing leaves the Mac. ASSIST in the left column turns it off. When the shot is clean it
+nudges toward a more cinematic image instead: open the iris for a soft background, or turn on MIST.
+
+**MIST** (right column, MIST1 / MIST2) is a display-only diffusion look: highlights bloom into a soft
+halo and skin softens, the way a Pro-Mist filter renders. The camera records clean; zebras, false
+colour and the scopes keep reading the unmisted picture, and NATIVE goes off in the bottom strip
+while it is on.
 
 ### Vertical and social formats
 
@@ -245,8 +259,12 @@ python3 tools/camerasim.py                       # JSON-RPC on :8080
 CINEMAHUD_ADDRESS=127.0.0.1:8080 swift run CinemaHUD
 ```
 
+Simulator flags: `--stills` (mode dial on a still position), `--pz` (power-zoom lens),
+`--photo photo.jpg` (serve a still photo as the live view; try one with a face for Shot assist).
+
 Other development environment variables: `CINEMAHUD_WINDOW=WxH`, `CINEMAHUD_OVERLAYS=peaking,zebra,crop=2.39,hidehud`,
-`CINEMAHUD_SNAPSHOT=/path.png` (renders the window to a PNG), `CINEMAHUD_QUIT=1`.
+`CINEMAHUD_SNAPSHOT=/path.png` (renders the window to a PNG), `CINEMAHUD_QUIT=1`, `CINEMAHUD_TRACE=1`
+(logs frame and assist decisions).
 
 ### Checking a real camera
 

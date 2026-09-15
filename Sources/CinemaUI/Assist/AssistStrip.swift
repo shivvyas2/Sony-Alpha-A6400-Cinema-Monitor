@@ -12,7 +12,7 @@ struct AssistStrip: View {
             ForEach(controller.lines) { line in
                 let fix = controller.fix(for: line.id)
                 let severity = fix == nil ? Severity.info : Severity.warn
-                Button { if fix != nil { controller.apply(line.id, session: session, rotation: overlays.rotation) } } label: {
+                Button { if fix != nil { controller.apply(line.id, session: session, rotation: overlays.rotation, monitor: overlays) } } label: {
                     HStack(spacing: 6) {
                         if line.fromModel {
                             Text("AI").font(.system(size: 7.5, weight: .heavy)).foregroundStyle(Color.black)
