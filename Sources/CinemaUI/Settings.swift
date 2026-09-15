@@ -87,6 +87,12 @@ public final class OverlaySettings {
     public var modeResolver = ShootingModeResolver()
     public var shootingMode: ShootingMode { modeResolver.mode }
     public var reviewShowsRAW = false
+    /// Guides (mobile guides sheet; the Mac keeps its own defaults).
+    public var guideRatio: FrameGuideRatio = .r239
+    public var safeAreas = false
+    public var diagonals = false
+    public var peakingColor: PeakingColor = .red
+    public var showSharpnessMeter = true
 
     /// The LUT that should be applied to the feed right now, if any.
     public var activeLUT: (data: Data, dimension: Int)? {

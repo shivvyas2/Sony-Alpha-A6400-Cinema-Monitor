@@ -130,4 +130,10 @@ public actor SonyCameraClient {
     public func actZoom(direction: String, movement: String) async throws {
         try await call("actZoom", [.string(direction), .string(movement)])
     }
+    public func setStillSize(aspect: String, size: String) async throws { try await call("setStillSize", [.string(aspect), .string(size)]) }
+    public func getSupportedStillSize() async throws -> [StillSize] { StillSize.list(from: try await call("getSupportedStillSize")[0]) }
+    public func setMovieQuality(_ v: String) async throws { try await call("setMovieQuality", [.string(v)]) }
+    public func getSupportedMovieQuality() async throws -> [String] { try await call("getSupportedMovieQuality")[0].stringArray }
+    public func setMovieFileFormat(_ v: String) async throws { try await call("setMovieFileFormat", [.string(v)]) }
+    public func getSupportedMovieFileFormat() async throws -> [String] { try await call("getSupportedMovieFileFormat")[0].stringArray }
 }

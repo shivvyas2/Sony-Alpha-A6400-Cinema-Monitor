@@ -32,6 +32,7 @@ public struct MonitorView: View {
         .background(Theme.field)
         .onChange(of: session.frame, initial: true) { _, f in reprocess(f) }
         .onChange(of: overlays.peaking) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.peakingColor) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.zebra) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.falseColor) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.scope) { _, _ in reprocess(session.frame) }
@@ -99,7 +100,7 @@ public struct MonitorView: View {
         let source = frame.matchedToWorkingSpace(from: overlays.feedColorSpace.cgColorSpace) ?? frame
         let p = processor
         processed = p.pipeline(source, peaking: overlays.peaking, zebra: overlays.zebra, zebraLevel: overlays.zebraLevel,
-                               falseColor: overlays.falseColor, rotation: overlays.rotation)
+                               falseColor: overlays.falseColor, rotation: overlays.rotation, peakingColor: overlays.peakingColor.rgb)
         if ProcessInfo.processInfo.environment["CINEMAHUD_TRACE"] == "1" { NSLog("trace: frame %@ -> processed %@ lut=%d", "\(frame.extent)", "\(processed?.extent ?? .zero)", p.lutCube != nil ? 1 : 0) }
         let kind = overlays.scope
         guard kind != .none else { scope = nil; return }
@@ -216,14 +217,34 @@ struct FrameOverlays: View {
                 ctx.stroke(thirds, with: .color(.white.opacity(0.16)), style: thin)
             }
             if overlays.frameGuides {
-                let h = rect.width / 2.39
-                let top = rect.midY - h / 2, bottom = rect.midY + h / 2
+                let target = overlays.guideRatio.value, native = rect.width / rect.height
                 var p = Path()
-                p.move(to: CGPoint(x: rect.minX, y: top)); p.addLine(to: CGPoint(x: rect.maxX, y: top))
-                p.move(to: CGPoint(x: rect.minX, y: bottom)); p.addLine(to: CGPoint(x: rect.maxX, y: bottom))
+                if target >= native {
+                    let h = rect.width / target
+                    let top = rect.midY - h / 2, bottom = rect.midY + h / 2
+                    p.move(to: CGPoint(x: rect.minX, y: top)); p.addLine(to: CGPoint(x: rect.maxX, y: top))
+                    p.move(to: CGPoint(x: rect.minX, y: bottom)); p.addLine(to: CGPoint(x: rect.maxX, y: bottom))
+                    ctx.fill(Path(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, top - rect.minY))), with: .color(.black.opacity(0.5)))
+                    ctx.fill(Path(CGRect(x: rect.minX, y: bottom, width: rect.width, height: max(0, rect.maxY - bottom))), with: .color(.black.opacity(0.5)))
+                } else {
+                    let w = rect.height * target
+                    let left = rect.midX - w / 2, right = rect.midX + w / 2
+                    p.move(to: CGPoint(x: left, y: rect.minY)); p.addLine(to: CGPoint(x: left, y: rect.maxY))
+                    p.move(to: CGPoint(x: right, y: rect.minY)); p.addLine(to: CGPoint(x: right, y: rect.maxY))
+                    ctx.fill(Path(CGRect(x: rect.minX, y: rect.minY, width: max(0, left - rect.minX), height: rect.height)), with: .color(.black.opacity(0.5)))
+                    ctx.fill(Path(CGRect(x: right, y: rect.minY, width: max(0, rect.maxX - right), height: rect.height)), with: .color(.black.opacity(0.5)))
+                }
                 ctx.stroke(p, with: .color(.white.opacity(0.7)), style: thin)
-                ctx.fill(Path(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, top - rect.minY))), with: .color(.black.opacity(0.5)))
-                ctx.fill(Path(CGRect(x: rect.minX, y: bottom, width: rect.width, height: max(0, rect.maxY - bottom))), with: .color(.black.opacity(0.5)))
+            }
+            if overlays.safeAreas {
+                ctx.stroke(Path(rect.insetBy(dx: rect.width * 0.05, dy: rect.height * 0.05)), with: .color(.white.opacity(0.5)), style: thin)
+                ctx.stroke(Path(rect.insetBy(dx: rect.width * 0.10, dy: rect.height * 0.10)), with: .color(.white.opacity(0.35)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            }
+            if overlays.diagonals {
+                var d = Path()
+                d.move(to: CGPoint(x: rect.minX, y: rect.minY)); d.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+                d.move(to: CGPoint(x: rect.maxX, y: rect.minY)); d.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+                ctx.stroke(d, with: .color(.white.opacity(0.25)), style: thin)
             }
             if overlays.centerMarker {
                 var p = Path()

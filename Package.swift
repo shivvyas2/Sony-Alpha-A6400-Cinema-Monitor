@@ -15,6 +15,6 @@ let package = Package(
         .target(name: "CinemaUI", dependencies: ["SonyCameraKit"]),
         .executableTarget(name: "CinemaHUD", dependencies: ["SonyCameraKit", "CinemaUI"]),
         .executableTarget(name: "usbprobe", dependencies: ["SonyCameraKit"]),
-        .testTarget(name: "SonyCameraKitTests", dependencies: ["SonyCameraKit"]),
+        .testTarget(name: "SonyCameraKitTests", dependencies: ["SonyCameraKit", "CinemaUI"]),
     ]
 )

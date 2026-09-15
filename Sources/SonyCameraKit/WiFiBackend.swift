@@ -29,6 +29,10 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
         var s = CameraState()
         s.availableAPIs = Set(apis)
         s.apply(event: try await client.getEvent(longPolling: false, version: eventVersion))
+        // Candidate lists that only come from the getSupported* calls.
+        if apis.contains("getSupportedStillSize"), let list = try? await client.getSupportedStillSize() { s.stillSizeCandidates = list }
+        if apis.contains("getSupportedMovieQuality"), s.movieQualityCandidates.isEmpty, let list = try? await client.getSupportedMovieQuality() { s.movieQualityCandidates = list }
+        if apis.contains("getSupportedMovieFileFormat"), s.movieFileFormatCandidates.isEmpty, let list = try? await client.getSupportedMovieFileFormat() { s.movieFileFormatCandidates = list }
         stateBox.set(s)
         return s
     }
@@ -159,6 +163,10 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
     public func stopMovie() async throws { try await client.stopMovieRec() }
     public func touchAF(x: Double, y: Double) async throws { _ = try await client.setTouchAFPosition(x: x, y: y) }
     public func cancelTouchAF() async throws { try await client.cancelTouchAFPosition() }
+    public func zoom(_ direction: ZoomDirection, _ movement: ZoomMovement) async throws { try await client.actZoom(direction: direction.rawValue, movement: movement.rawValue) }
+    public func setStillSize(_ s: StillSize) async throws { try await client.setStillSize(aspect: s.aspect, size: s.size) }
+    public func setMovieQuality(_ v: String) async throws { try await client.setMovieQuality(v) }
+    public func setMovieFileFormat(_ v: String) async throws { try await client.setMovieFileFormat(v) }
 }
 
 /// Small lock-protected holder so the event loop can merge deltas into a snapshot.

@@ -161,6 +161,14 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
             default: s.focusStatus = "Not Focusing"
             }
         }
+        if let sz = p[SonyProp.imageSize], let asp = p[SonyProp.aspectRatio] {
+            let sizeName = SonyTables.name(sz.current, in: SonyTables.imageSize), aspectName = SonyTables.name(asp.current, in: SonyTables.aspect)
+            s.stillSize = StillSize(usbAspect: aspectName, usbSize: sizeName)
+            let sizes = candidates(sz).map { SonyTables.name($0, in: SonyTables.imageSize) }
+            let aspects = candidates(asp).map { SonyTables.name($0, in: SonyTables.aspect) }
+            s.stillSizeCandidates = aspects.flatMap { a in sizes.compactMap { StillSize(usbAspect: a, usbSize: $0) } }
+            if sz.settable || asp.settable { apis.insert("setStillSize") }
+        }
         if let d = p[SonyProp.zoom], d.current > 0 { s.focalLengthMM = Double(d.current) / 1_000_000 }
         if let d = p[SonyProp.ccFilter] { s.ccShift = Int(d.current) - 192 }
         if let d = p[SonyProp.abFilter] { s.abShift = Int(d.current) - 192 }
@@ -346,6 +354,10 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
         try await setValue(SonyProp.exposureProgramMode, target: val)
     }
     public func setShootMode(_ v: String) async throws { throw UnsupportedOperation("Shoot mode (use the mode dial)") }
+    public func setStillSize(_ s: StillSize) async throws {
+        try await setSetting(id: String(format: "0x%04X", SonyProp.aspectRatio), value: s.aspect)
+        try await setSetting(id: String(format: "0x%04X", SonyProp.imageSize), value: s.usbSizeName)
+    }
 
     // MARK: Generic settings menu
 

@@ -191,10 +191,18 @@ exercised against the simulator only; hardware verification pending.
 
 ## iPhone and iPad
 
-`iOS/CinemaHUDMobile.xcodeproj` (generated from `iOS/project.yml` with XcodeGen) builds the same
-monitor for iOS 17+ from the shared `CinemaUI` and `SonyCameraKit` modules: identical HUD, scopes,
-LUTs, enhance, motion, denoise, crops and photo mode. Touch replaces the mouse: tap a readout for
-its picker, swipe up or down on it to step like a dial, tap the picture to focus.
+`iOS/CinemaHUDMobile.xcodeproj` (generated from `iOS/project.yml` with XcodeGen) builds a touch-first
+field monitor for iOS 17+ on the shared `CinemaUI` and `SonyCameraKit` modules. It works in any
+orientation: landscape puts tool rails on the sides and exposure along the bottom; portrait puts the
+picture on top and a control deck below. A VIDEO | PHOTO switch sits in the top band (over Wi-Fi it
+also moves the camera's shoot mode; over USB / bridge the body's dial decides). Sheets cover
+**Guides** (thirds, centre, safe areas, diagonals, frame lines with a ratio picker), **Focus**
+(AF mode, manual focus wheel and steps over USB / bridge, peaking with colour, 2× magnify, sharpness
+meter), **Zoom** (W/T rocker for power-zoom lenses over Wi-Fi) and **Format** (still size / aspect,
+movie quality and file format where the camera exposes them). Settings holds display options,
+About, the Privacy Policy and the Terms of Use. Captures the camera hands over are saved under
+CinemaHUD in the Files app. Tap a readout for its list, swipe up or down on it to step like a dial,
+tap the picture to focus.
 
 Two ways to connect:
 

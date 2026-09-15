@@ -331,6 +331,10 @@ public final class CameraSession {
         case "setSetting": if let id = cmd.value, let v = cmd.value2 { await setSetting(id, v) }
         case "focusDrive": if let n = cmd.index { await focusDrive(n) }
         case "press": if let v = cmd.value, let b = CameraButton(rawValue: v) { await press(b) }
+        case "zoom": if let d = cmd.value.flatMap(ZoomDirection.init(rawValue:)), let m = cmd.value2.flatMap(ZoomMovement.init(rawValue:)) { await zoom(d, m) }
+        case "setStillSize": if let a = cmd.value, let z = cmd.value2 { await setStillSize(StillSize(aspect: a, size: z)) }
+        case "setMovieQuality": if let v = cmd.value { await setMovieQuality(v) }
+        case "setMovieFileFormat": if let v = cmd.value { await setMovieFileFormat(v) }
         default: return BridgeReply(ok: false, error: "unknown op \(cmd.op)")
         }
         return BridgeReply(ok: lastError == nil, error: lastError)
@@ -399,6 +403,15 @@ public final class CameraSession {
     /// Nudge manual focus: negative = near, positive = far, |steps| = size (1 fine … 7 coarse).
     public func focusDrive(_ steps: Int) async { await perform("Focus") { try await $0.focusDrive(steps: steps) } }
     public func press(_ button: CameraButton) async { await perform(button.rawValue) { try await $0.press(button) } }
+    public func zoom(_ direction: ZoomDirection, _ movement: ZoomMovement) async { await perform("Zoom") { try await $0.zoom(direction, movement) } }
+    public func setStillSize(_ s: StillSize) async { await perform("Still size") { try await $0.setStillSize(s) } }
+    public func setMovieQuality(_ v: String) async { await perform("Movie quality") { try await $0.setMovieQuality(v) } }
+    public func setMovieFileFormat(_ v: String) async { await perform("Movie format") { try await $0.setMovieFileFormat(v) } }
+
+    public var zoomAvailable: Bool { state.supports("actZoom") }
+    public var stillSizeAvailable: Bool { state.supports("setStillSize") && !state.stillSizeCandidates.isEmpty }
+    public var movieQualityAvailable: Bool { state.supports("setMovieQuality") && !state.movieQualityCandidates.isEmpty }
+    public var movieFileFormatAvailable: Bool { state.supports("setMovieFileFormat") && !state.movieFileFormatCandidates.isEmpty }
 
     // MARK: Errors
 
