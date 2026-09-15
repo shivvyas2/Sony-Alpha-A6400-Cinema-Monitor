@@ -42,7 +42,7 @@ The a6400 in **"Ctrl w/ Smartphone"** mode exposes the Sony **Camera Remote API*
 
 ## Architecture
 
-Swift Package with three targets:
+Swift Package with two Swift targets plus a Python simulator:
 
 1. **`SonyCameraKit`** (library, no UI)
    - `SSDPDiscovery` — sends M-SEARCH, parses responses, fetches device description, returns service URL.
@@ -56,11 +56,15 @@ Swift Package with three targets:
    - `MonitorView` — live view image, aspect-fit, letterboxed on black, with overlays (grid, safe area, peaking, zebra) and click-to-AF.
    - `HUDOverlay` — top bar (REC dot + recording time, camera status, battery, shots left), bottom bar of `HUDReadout`s (SHUTTER, IRIS, ISO, WB, EV, FOCUS). Click a readout to open a popover of the candidate values; scroll wheel steps through them.
    - `ToolbarView` — AF (half press), SHOOT, REC, overlay toggles.
-   - Keyboard: space = AF, return = shoot, R = record, G = grid, P = peaking, Z = zebra.
+   - Aspect crop (native, 16:9, 1.85, 2.00, 2.35, 2.39): crops the feed top/bottom and aspect-fits
+     the crop, so a scope ratio fills an ultrawide (21:9) monitor edge to edge in full screen.
+     Click-to-AF coordinates are mapped back through the crop to full-frame percentages.
+   - Keyboard: space = AF, return = shoot, R = record, G = grid, F = guides, C = center, P = peaking,
+     Z = zebra, H = hide HUD, 1–6 = aspect crop.
 
-3. **`CameraSim`** (executable) — a fake a6400: SSDP responder + JSON-RPC server +
-   liveview stream generator. Renders synthetic frames with CoreGraphics so the app
-   can be exercised end-to-end without hardware. Honors the set* calls so the HUD updates.
+3. **`tools/camerasim.py`** — a fake a6400 in Python (Pillow for frames): SSDP responder +
+   JSON-RPC server + liveview stream generator. Honors the set* calls so the HUD updates,
+   and its synthetic scene's brightness follows shutter/iris/ISO/EV.
 
 Tests (`SonyCameraKitTests`): liveview parser (single frame, split across chunks,
 padding, garbage before start byte), event decoding from a recorded-style JSON
