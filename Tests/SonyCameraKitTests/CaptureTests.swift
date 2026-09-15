@@ -22,6 +22,11 @@ final class CaptureTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: b), Data([2]))
     }
 
+    func testPostviewFilenameFromURL() {
+        XCTAssertEqual(WiFiBackend.postviewFilename(for: URL(string: "http://192.168.122.1:8080/postview/pict20260915_120301.JPG?x=1")!, shot: 3), "pict20260915_120301.JPG")
+        XCTAssertEqual(WiFiBackend.postviewFilename(for: URL(string: "http://192.168.122.1:8080/")!, shot: 3), "capture-3.jpg")
+    }
+
     func testBroadcasterDeliversToEveryListener() async {
         let b = CaptureBroadcaster()
         let s1 = b.stream(), s2 = b.stream()

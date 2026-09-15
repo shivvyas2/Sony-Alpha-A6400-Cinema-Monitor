@@ -115,6 +115,10 @@ public actor SonyCameraClient {
     public func actHalfPressShutter() async throws { try await call("actHalfPressShutter") }
     public func cancelHalfPressShutter() async throws { try await call("cancelHalfPressShutter") }
     public func actTakePicture() async throws -> [String] { try await call("actTakePicture")[0].stringArray }
+    /// "Original" makes the postview the full-size JPEG instead of a 2M proxy.
+    public func setPostviewImageSize(_ size: String) async throws { try await call("setPostviewImageSize", [.string(size)]) }
+    /// Polled after `actTakePicture` answers 40403 (still capturing); returns the postview URLs once ready.
+    public func awaitTakePicture() async throws -> [String] { try await call("awaitTakePicture")[0].stringArray }
     public func startMovieRec() async throws { try await call("startMovieRec") }
     public func stopMovieRec() async throws { try await call("stopMovieRec") }
     /// x, y are percentages 0...100 of the liveview image.

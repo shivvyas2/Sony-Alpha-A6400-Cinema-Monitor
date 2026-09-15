@@ -25,6 +25,7 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
             apis = (try? await client.getAvailableApiList()) ?? apis
         }
         eventVersion = await client.bestEventVersion()
+        if apis.contains("setPostviewImageSize") { try? await client.setPostviewImageSize("Original") }
         var s = CameraState()
         s.availableAPIs = Set(apis)
         s.apply(event: try await client.getEvent(longPolling: false, version: eventVersion))
@@ -46,6 +47,9 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
                         failures = 0
                         let s = stateBox.update { $0.apply(event: ev) }
                         cont.yield(s)
+                        // Shots fired on the body show up here as takePictureUrl; app shots too, deduplicated below.
+                        let fresh = s.lastPictureURLs.compactMap { URL(string: $0) }
+                        if !fresh.isEmpty { Task { await self.download(fresh) } }
                     } catch let e as SonyAPIError where e.code == 2 {
                         continue   // long-poll timeout without changes
                     } catch {
@@ -98,7 +102,59 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
         try? await Task.sleep(for: .milliseconds(1200))
         try? await client.cancelHalfPressShutter()
     }
-    public func takePicture() async throws { _ = try await client.actTakePicture() }
+    private let captureLock = NSLock()
+    private var shotCounter = 0
+    private var claimed: Set<URL> = []
+
+    public func takePicture() async throws {
+        var urls: [String]
+        do {
+            urls = try await client.actTakePicture()
+        } catch let e as SonyAPIError where e.code == 40403 {
+            urls = []
+            for _ in 0 ..< 30 {
+                try await Task.sleep(for: .milliseconds(500))
+                if let u = try? await client.awaitTakePicture(), !u.isEmpty { urls = u; break }
+            }
+        }
+        let list = urls.compactMap { URL(string: $0) }
+        guard !list.isEmpty else { throw SonyAPIError(code: -1, message: "camera returned no postview image", method: "actTakePicture") }
+        Task { await self.download(list) }
+    }
+
+    static func postviewFilename(for url: URL, shot: Int) -> String {
+        let name = url.lastPathComponent
+        return name.isEmpty || name == "/" ? "capture-\(shot).jpg" : name
+    }
+
+    /// Claims URLs not seen before and assigns them one shot index. Returns nil when everything was already handled.
+    private func claim(_ urls: [URL]) -> (shot: Int, urls: [URL])? {
+        captureLock.withLock {
+            let fresh = urls.filter { !claimed.contains($0) }
+            guard !fresh.isEmpty else { return nil }
+            claimed.formUnion(fresh)
+            shotCounter += 1
+            return (shotCounter, fresh)
+        }
+    }
+
+    /// The Camera Remote API only ever hands over the JPEG during remote shooting; RAW stays on the card.
+    private func download(_ urls: [URL]) async {
+        guard let (index, fresh) = claim(urls) else { return }
+        let now = Date()
+        for u in fresh {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: u)
+                let name = Self.postviewFilename(for: u, shot: index)
+                let file = try CaptureStore.write(data, base: saveDirectory, filename: name, date: now)
+                captures.send(.image(CapturedImage(url: file, kind: .jpeg, filename: name, takenAt: now, shotIndex: index)))
+            } catch {
+                captures.send(.failed(shotIndex: index, message: "Postview download failed: \(error.localizedDescription)"))
+                return
+            }
+        }
+        captures.send(.finished(shotIndex: index))
+    }
     public func startMovie() async throws { try await client.startMovieRec() }
     public func stopMovie() async throws { try await client.stopMovieRec() }
     public func touchAF(x: Double, y: Double) async throws { _ = try await client.setTouchAFPosition(x: x, y: y) }
