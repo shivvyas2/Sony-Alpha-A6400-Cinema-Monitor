@@ -54,6 +54,7 @@ struct CinemaHUDApp: App {
                 Toggle("Center Marker", isOn: $overlays.centerMarker).keyboardShortcut("c", modifiers: [])
                 Toggle("Focus Peaking", isOn: $overlays.peaking).keyboardShortcut("p", modifiers: [])
                 Toggle("Zebras", isOn: $overlays.zebra).keyboardShortcut("z", modifiers: [])
+                Toggle("Enhanced Upscaling (MetalFX)", isOn: $overlays.enhanced).keyboardShortcut("e", modifiers: [])
                 Toggle("Hide HUD", isOn: $overlays.hideHUD).keyboardShortcut("h", modifiers: [])
             }
         }
@@ -108,6 +109,8 @@ final class OverlaySettings {
     var hideHUD = false
     var zebraLevel: Double = 0.95
     var crop: CropRatio = .native
+    /// MetalFX spatial upscaling of the live view to the display resolution.
+    var enhanced = false
 }
 
 struct ContentView: View {
@@ -153,6 +156,9 @@ enum DevHooks {
             guard let w = NSApp.windows.first else { return }
             w.setContentSize(NSSize(width: parts[0], height: parts[1]))
             w.center()
+            // Let `screencapture -l` reach the window from any Space, and publish its id for scripts.
+            w.collectionBehavior.insert(.canJoinAllSpaces)
+            if let path = env["CINEMAHUD_WINDOWID_FILE"] { try? "\(w.windowNumber)".write(toFile: path, atomically: true, encoding: .utf8) }
         }
     }
 
@@ -166,6 +172,7 @@ enum DevHooks {
             case "nogrid": overlays.grid = false
             case "guides": overlays.frameGuides = true
             case "hidehud": overlays.hideHUD = true
+            case "enhanced": overlays.enhanced = true
             default:
                 if tok.hasPrefix("crop=") {
                     let v = tok.dropFirst(5)

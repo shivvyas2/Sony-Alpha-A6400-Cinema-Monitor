@@ -3,6 +3,9 @@ import SonyCameraKit
 
 struct TopBar: View {
     @Environment(CameraSession.self) private var session
+    @Environment(OverlaySettings.self) private var overlays
+    @State private var outputSize: CGSize = .zero
+    @State private var outputFX = false
 
     var body: some View {
         let s = session.state
@@ -33,12 +36,21 @@ struct TopBar: View {
             }
 
             HStack(spacing: 10) {
+                if overlays.enhanced, outputSize.width > 0 {
+                    Text("\(outputFX ? "MFX" : "LANCZOS") \(Int(outputSize.width))×\(Int(outputSize.height))")
+                        .font(Theme.mono(11)).foregroundStyle(Theme.amber)
+                }
+                Text("\(Int(session.frameSize.width))×\(Int(session.frameSize.height))").font(Theme.mono(11)).foregroundStyle(Theme.dim)
                 Text(String(format: "%.0f FPS", session.fps)).font(Theme.mono(11)).foregroundStyle(Theme.dim)
                 if let n = s.shotsRemaining { Text("\(n) STILLS").font(Theme.mono(11)).foregroundStyle(Theme.dim) }
                 if let m = s.recordableMinutes { Text("\(m) MIN").font(Theme.mono(11)).foregroundStyle(Theme.dim) }
                 BatteryGlyph(fraction: s.battery?.fraction ?? 0, known: s.battery != nil)
             }
             .padding(.horizontal, 12).padding(.vertical, 7).hudPanel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: FrameRenderer.outputSizeChanged)) { n in
+            if let s = n.userInfo?["size"] as? CGSize { outputSize = s }
+            outputFX = n.userInfo?["fx"] as? Bool ?? false
         }
     }
 
@@ -211,6 +223,7 @@ struct SideTools: View {
             toggle("GUIDE", "rectangle.ratio.16.to.9", $ov.frameGuides)
             toggle("PEAK", "waveform.path", $ov.peaking)
             toggle("ZEBRA", "line.diagonal", $ov.zebra)
+            toggle("ENHANCE", "sparkles", $ov.enhanced)
             Button { ov.crop = ov.crop.next } label: {
                 VStack(spacing: 3) {
                     Image(systemName: "crop").font(.system(size: 15, weight: .medium))

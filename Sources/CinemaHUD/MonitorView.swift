@@ -16,10 +16,16 @@ struct MonitorView: View {
                 Color.black
                 if let img = displayImage {
                     // Draw the full frame scaled so the cropped region exactly fills `rect`, then clip to it.
-                    Image(decorative: img, scale: 1).resizable().interpolation(.high)
-                        .frame(width: layout.fullSize.width, height: layout.fullSize.height)
-                        .position(x: rect.midX, y: rect.midY + layout.fullOffsetY)
-                        .clipShape(Rectangle().path(in: rect))
+                    Group {
+                        if overlays.enhanced {
+                            MetalFrameView(image: img, enhanced: true)
+                        } else {
+                            Image(decorative: img, scale: 1).resizable().interpolation(.high)
+                        }
+                    }
+                    .frame(width: layout.fullSize.width, height: layout.fullSize.height)
+                    .position(x: rect.midX, y: rect.midY + layout.fullOffsetY)
+                    .clipShape(Rectangle().path(in: rect))
                 } else {
                     VStack(spacing: 8) {
                         ProgressView().controlSize(.large)

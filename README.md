@@ -48,6 +48,7 @@ click Discover; allow it.
 | Set AF point | click on the image | |
 | Thirds grid / 2.39 guide shading / center marker | GRID, GUIDE buttons | G, F, C |
 | Focus peaking / zebras | PEAK, ZEBRA buttons | P, Z |
+| Enhanced upscaling (MetalFX) | ENHANCE button | E |
 | Aspect crop: native, 16:9, 1.85, 2.00, 2.35, 2.39 | crop button cycles | 1 – 6 |
 | Hide the HUD | | H |
 | Full screen | View › Enter Full Screen | ⌃⌘F |
@@ -57,6 +58,15 @@ is cropped to that ratio and fills a 21:9 display edge to edge instead of letter
 
 Readouts are dimmed when the camera does not currently allow that change (for example, nothing
 is adjustable in Intelligent Auto, and shutter speed cannot be set in Aperture priority).
+
+### Enhanced mode
+
+**ENHANCE** (E) renders the live view through Apple's MetalFX spatial upscaler on the GPU,
+reconstructing edges when the 1024×680 feed is stretched to a 4K or Retina display. It adds no
+latency. On GPUs without MetalFX, or when the window is smaller than the feed, it falls back to
+Lanczos resampling. The top bar shows the output resolution and which path is active (MFX or
+LANCZOS). It is a nicer picture, not a truer one: the camera still sends 1024×680, so it will
+not reveal detail or focus the sensor feed does not contain. Frame rate is unchanged.
 
 ### Live view quality and frame rate
 
