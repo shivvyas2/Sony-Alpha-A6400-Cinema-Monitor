@@ -177,19 +177,7 @@ struct TopStrip: View {
         }
     }
 
-    private func shutterAngle(_ speed: String?, fps: Int) -> String {
-        guard let speed, let secs = exposureSeconds(speed) else { return "--" }
-        let angle = 360.0 * Double(fps) * secs
-        if angle > 360 { return "360+" }
-        return String(format: "%.1f", angle)
-    }
-    private func exposureSeconds(_ s: String) -> Double? {
-        if s.uppercased() == "BULB" || s == "--" { return nil }
-        if s.hasSuffix("\"") { return Double(s.dropLast()) }
-        let p = s.split(separator: "/")
-        if p.count == 2, let a = Double(p[0]), let b = Double(p[1]), b > 0 { return a / b }
-        return Double(s)
-    }
+    private func shutterAngle(_ speed: String?, fps: Int) -> String { ShutterAngle.label(speed: speed, fps: fps) }
     private func evCandidates(_ ev: ExposureCompensation?) -> [String] {
         guard let ev else { return [] }
         return (ev.minIndex ... ev.maxIndex).reversed().map { i in
