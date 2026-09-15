@@ -10,12 +10,17 @@ public struct MonitorView: View {
     @State private var processed: CIImage?
     @State private var scope: CGImage?
     @State private var afFlash = false
+    @State private var analyzer = SceneAnalyzer()
+    @State private var assist = AssistController()
 
     public var body: some View {
         VStack(spacing: 0) {
             if !overlays.hideHUD { TopStrip() }
             ZStack {
                 picture
+                if !overlays.hideHUD, overlays.assist, assist.visible {
+                    VStack { HStack { AssistStrip(controller: assist).padding(.leading, 60).padding(.top, 8); Spacer() }; Spacer() }
+                }
                 if !overlays.hideHUD {
                     HStack(spacing: 0) {
                         LeftTools().padding(.leading, 6)
@@ -72,6 +77,13 @@ public struct MonitorView: View {
                         .position(x: rect.midX, y: rect.minY + 16)
                 }
                 afMarker(in: rect, layout: layout)
+                if overlays.assist, let p = assist.pendingAF {
+                    let fx = (p.x - layout.cropX) / layout.cropWidth, fy = (p.y - layout.cropY) / layout.cropHeight
+                    BracketFrame().stroke(Theme.warn, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        .frame(width: rect.width * 0.09, height: rect.width * 0.09)
+                        .position(x: rect.minX + rect.width * fx, y: rect.minY + rect.height * fy)
+                        .clipShape(Rectangle().path(in: rect)).allowsHitTesting(false)
+                }
                 Color.clear.contentShape(Rectangle())
                     .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
                     .onTapGesture { loc in
@@ -102,6 +114,15 @@ public struct MonitorView: View {
         processed = p.pipeline(source, peaking: overlays.peaking, zebra: overlays.zebra, zebraLevel: overlays.zebraLevel,
                                falseColor: overlays.falseColor, rotation: overlays.rotation, peakingColor: overlays.peakingColor.rgb)
         if ProcessInfo.processInfo.environment["CINEMAHUD_TRACE"] == "1" { NSLog("trace: frame %@ -> processed %@ lut=%d", "\(frame.extent)", "\(processed?.extent ?? .zero)", p.lutCube != nil ? 1 : 0) }
+        if overlays.assist {
+            // Measure the colour-interpreted source (before LUT and effects) in display orientation.
+            let rotated = overlays.rotation == 0 ? source : source.oriented(overlays.rotation == 90 ? .right : (overlays.rotation == 270 ? .left : .down))
+            let sensorAF = session.focusCheckPoint ?? session.state.touchAFPoint.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
+            let af = sensorAF.map { AssistController.displayPoint($0, rotation: overlays.rotation) }
+            let (st, prof, fps, mode) = (session.state, overlays.profile, overlays.projectFPS, overlays.shootingMode)
+            let ctl = assist
+            analyzer.analyze(rotated, afPoint: af) { m in ctl.ingest(measurements: m, state: st, profile: prof, projectFPS: fps, shootingMode: mode) }
+        }
         let kind = overlays.scope
         guard kind != .none else { scope = nil; return }
         // Scopes read the picture after the LUT, before effects paint on it.

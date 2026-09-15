@@ -370,6 +370,7 @@ struct LeftTools: View {
             EdgeButton(title: "FRAME", active: overlays.grid) { ov.grid.toggle() }
             EdgeButton(title: "GUIDE", active: overlays.frameGuides) { if let route { route(.guides) } else { ov.frameGuides.toggle() } }
             EdgeButton(title: overlays.crop == .native ? "CROP" : overlays.crop.label, active: overlays.crop != .native) { ov.crop = ov.crop.next }
+            if route == nil { EdgeButton(title: "ASSIST", active: overlays.assist) { ov.assist.toggle() } }
             Spacer(minLength: touch ? 6 : 0)
             if let route { EdgeButton(title: "PHOTO") { route(.photo) } }
             EdgeButton(title: "MENU", active: overlays.showMenu) { if let route { route(.menu) } else { ov.showMenu.toggle() } }
@@ -457,6 +458,13 @@ struct SettingsPanel: View {
                         row("Project frame rate") { Picker("", selection: $ov.projectFPS) { ForEach([24, 25, 30, 48, 50, 60], id: \.self) { Text("\($0) fps").tag($0) } } }
                         row("Camera index") { Picker("", selection: $ov.cameraIndex) { ForEach(["A", "B", "C", "D"], id: \.self) { Text($0).tag($0) } } }
                         row("Reel") { Stepper(value: $ov.reel, in: 1 ... 999) { Text(String(format: "%04d", overlays.reel)).font(Theme.mono(12)) } }
+                        row("Shot assist") {
+                            HStack(spacing: 8) {
+                                Toggle("", isOn: $ov.assist).toggleStyle(.switch).controlSize(.small).labelsHidden()
+                                Text(ShotAdvisorAvailability.current.reason ?? "Apple Intelligence phrases the advice")
+                                    .font(.system(size: 10)).foregroundStyle(Theme.dim)
+                            }
+                        }
                     }
                     ForEach(["Exposure", "Focus", "Shooting", "Image"], id: \.self) { g in
                         if let items = groups[g], !items.isEmpty {
