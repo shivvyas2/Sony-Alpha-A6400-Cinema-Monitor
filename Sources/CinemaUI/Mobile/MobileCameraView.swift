@@ -377,7 +377,4 @@ public struct MobileCameraView: View {
 
     private func duration(_ secs: Int) -> String { String(format: "%02d:%02d:%02d", secs / 3600, secs / 60 % 60, secs % 60) }
 }
-
-// Replaced by Task 7 (MobileSettingsView.swift).
-struct MobileSettingsView: View { var body: some View { SheetChrome(title: "Settings") { Text("Coming in Task 7") } } }
 #endif
