@@ -39,6 +39,11 @@ struct PhotoHUD: View {
             modeBadge(s.exposureMode)
             if let n = s.shotsRemaining { sonyText("[ \(n) ]", 15) }
             fileFormatBadge
+            if session.captures.last?.transferring == true {
+                // A RAW pull shares the USB link with live view, so the picture pauses for a second or two.
+                sonyText(session.captures.last?.raw == nil && session.transport == .usb ? "TRANSFERRING RAW…" : "TRANSFERRING…", 11)
+                    .foregroundStyle(Theme.warn).opacity(blink ? 1 : 0.6)
+            }
             Spacer()
             if let t = session.transport { sonyText(t.rawValue.uppercased(), 11).opacity(0.8) }
             battery(s.battery)

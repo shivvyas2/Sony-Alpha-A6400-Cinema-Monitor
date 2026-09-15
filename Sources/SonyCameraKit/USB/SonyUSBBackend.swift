@@ -16,6 +16,7 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
     private var draining = false
     private var lastEmptyDrainValue: Int64?
     private var awaitingShot: Task<Void, Never>?
+    private var warnedNoFile = false
     public var saveDirectory: URL
     let captures = CaptureBroadcaster()
     public func captureEvents() -> AsyncStream<CaptureEvent> { captures.stream() }
@@ -417,13 +418,19 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
         try await controlB(SonyProp.captureButton, 1, type: .uint16)
         try await controlB(SonyProp.autoFocusButton, 1, type: .uint16)
         // The watcher picks the files up; if nothing shows up the camera is not saving to the PC.
+        // Said once per session: saving to the card only may well be the user's choice.
         let captures = self.captures
         captureLock.withLock {
+            guard !warnedNoFile else { return }
             awaitingShot?.cancel()
-            awaitingShot = Task {
+            awaitingShot = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(15))
-                guard !Task.isCancelled else { return }
-                captures.send(.failed(shotIndex: -1, message: "No file received. On the camera set Still Img. Save Dest. to PC or PC+Camera."))
+                guard !Task.isCancelled, let self else { return }
+                let first = self.captureLock.withLock { () -> Bool in
+                    defer { self.warnedNoFile = true }
+                    return !self.warnedNoFile
+                }
+                if first { captures.send(.failed(shotIndex: -1, message: "No file received. On the camera set Still Img. Save Dest. to PC or PC+Camera.")) }
             }
         }
     }
