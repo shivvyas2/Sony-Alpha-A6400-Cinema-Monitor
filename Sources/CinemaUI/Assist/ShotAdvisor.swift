@@ -7,14 +7,14 @@ import FoundationModels
 struct AssistAdviceLine {
     @Guide(description: "The id of the finding this line explains, exactly as given in brackets")
     var finding: String
-    @Guide(description: "At most eight words, the clipped voice of a camera assistant")
+    @Guide(description: "Three to six words, no numbers, no settings, like a camera assistant calling it out")
     var text: String
 }
 
 @available(macOS 26, iOS 26, *)
 @Generable
 struct AssistAdvice {
-    @Guide(description: "At most two lines, most important first", .maximumCount(2))
+    @Guide(description: "One line per finding, most important first", .maximumCount(2))
     var lines: [AssistAdviceLine]
 }
 
