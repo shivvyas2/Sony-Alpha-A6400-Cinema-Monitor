@@ -1,176 +1,131 @@
 #!/usr/bin/env python3
-"""Renders the CinemaHUD app icon in a Liquid Glass style.
+"""CinemaHUD app icon: black liquid-glass tile, glass "CHM" monogram with a red REC bead,
+"CINEMA HUD MONITOR" along the bottom. Rendered at 2x and downsampled for clean edges.
 
-Outputs (in design/icon/):
+Outputs (in <outdir>, default design/icon):
   AppIcon-iOS-1024.png     opaque square, full bleed (App Store / iOS asset catalog)
   AppIcon-macOS-1024.png   squircle-masked with transparency (macOS)
   layer-background.png, layer-glass.png, layer-symbol.png   for Apple Icon Composer
+  preview.png              512 px preview
 """
 import math, os, sys
-from PIL import Image, ImageDraw, ImageFilter, ImageChops
+from PIL import Image, ImageDraw, ImageFilter, ImageChops, ImageFont
 
-S = 1024
+SS = 2
+S = 1024 * SS
 OUT = sys.argv[1] if len(sys.argv) > 1 else "design/icon"
 os.makedirs(OUT, exist_ok=True)
+FONT = "/System/Library/Fonts/SFNS.ttf"
 
-def radial(size, inner, outer, center=(0.5, 0.42), power=1.0):
-    """Radial gradient RGBA image from inner colour at center to outer colour at the corners."""
-    img = Image.new("RGBA", (size, size))
-    px = img.load()
-    cx, cy = center[0] * size, center[1] * size
-    maxd = math.hypot(max(cx, size - cx), max(cy, size - cy))
-    for y in range(size):
-        for x in range(size):
-            t = min(1.0, (math.hypot(x - cx, y - cy) / maxd) ** power)
-            px[x, y] = tuple(int(inner[i] + (outer[i] - inner[i]) * t) for i in range(4))
-    return img
+def font(size, weight):
+    f = ImageFont.truetype(FONT, size)
+    try: f.set_variation_by_name(weight)
+    except Exception: pass
+    return f
 
-def rounded_mask(size, radius, box=None):
-    m = Image.new("L", (size, size), 0)
-    d = ImageDraw.Draw(m)
-    d.rounded_rectangle(box or [0, 0, size - 1, size - 1], radius=radius, fill=255)
-    return m
+def spot(center, radius, color):
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(img).ellipse([center[0] - radius, center[1] - radius, center[0] + radius, center[1] + radius], fill=color)
+    return img.filter(ImageFilter.GaussianBlur(radius * 0.6))
 
 def squircle_mask(size):
-    # Apple's continuous-corner squircle (superellipse, n ≈ 5) as the macOS icon shape
-    m = Image.new("L", (size, size), 0)
-    px = m.load()
-    r = size / 2.0
+    m = Image.new("L", (size, size), 0); px = m.load(); r = size / 2.0
     for y in range(size):
         for x in range(size):
             u, v = abs((x + 0.5 - r) / r), abs((y + 0.5 - r) / r)
             px[x, y] = 255 if (u ** 5 + v ** 5) <= 1.0 else 0
     return m.filter(ImageFilter.GaussianBlur(1.2))
 
-# ---------- background: deep blue-violet night falling to black, faint horizon glow ----------
-bg = radial(S, (52, 62, 140, 255), (7, 8, 16, 255), center=(0.5, 0.32), power=0.8)
-glow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-gd = ImageDraw.Draw(glow)
-gd.ellipse([-200, 560, S + 200, 1180], fill=(150, 70, 170, 120))
-gd.ellipse([-100, 700, 600, 1300], fill=(40, 140, 190, 90))
-glow = glow.filter(ImageFilter.GaussianBlur(120))
-bg = Image.alpha_composite(bg, glow)
-# subtle top-light
-top = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-ImageDraw.Draw(top).ellipse([120, -260, S - 120, 260], fill=(255, 255, 255, 40))
-bg = Image.alpha_composite(bg, top.filter(ImageFilter.GaussianBlur(90)))
+def glass(bg, mask, tint=(255, 255, 255), body_alpha=(120, 60), refract=10, blur=12, edge_alpha=0.6):
+    """Mask → glass element over bg: refraction, vertical tint, top highlight, bottom inner shadow, rim."""
+    layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    seen = ImageChops.offset(bg, refract, refract).filter(ImageFilter.GaussianBlur(blur))
+    seen = ImageChops.add(seen, Image.new("RGBA", (S, S), (30, 30, 34, 0)))
+    layer.paste(seen, (0, 0), mask)
+    bbox = mask.getbbox()
+    tintimg = Image.new("RGBA", (S, S), (0, 0, 0, 0)); tp = tintimg.load()
+    for y in range(bbox[1], bbox[3]):
+        a = int(body_alpha[0] + (body_alpha[1] - body_alpha[0]) * (y - bbox[1]) / max(1, bbox[3] - bbox[1]))
+        for x in range(bbox[0], bbox[2]):
+            tp[x, y] = (*tint, a)
+    tintimg.putalpha(ImageChops.multiply(tintimg.split()[3], mask))
+    layer = Image.alpha_composite(layer, tintimg)
+    hi = ImageChops.subtract(mask, ImageChops.offset(mask, 0, 10 * SS)).filter(ImageFilter.GaussianBlur(4 * SS))
+    hi_img = Image.new("RGBA", (S, S), (255, 255, 255, 0)); hi_img.putalpha(hi.point(lambda v: min(255, int(v * 1.5))))
+    layer = Image.alpha_composite(layer, hi_img)
+    lo = ImageChops.subtract(mask, ImageChops.offset(mask, 0, -14 * SS)).filter(ImageFilter.GaussianBlur(8 * SS))
+    lo_img = Image.new("RGBA", (S, S), (0, 0, 0, 0)); lo_img.putalpha(lo.point(lambda v: int(v * 0.5)))
+    layer = Image.alpha_composite(layer, lo_img)
+    edge = ImageChops.subtract(mask, mask.filter(ImageFilter.MinFilter(2 * SS + 1)))
+    edge_img = Image.new("RGBA", (S, S), (255, 255, 255, 0)); edge_img.putalpha(edge.point(lambda v: int(v * edge_alpha)))
+    layer = Image.alpha_composite(layer, edge_img)
+    sh = Image.new("RGBA", (S, S), (0, 0, 0, 0)); sh.putalpha(mask.point(lambda v: int(v * 0.6)))
+    sh = ImageChops.offset(sh.filter(ImageFilter.GaussianBlur(18 * SS)), 0, 20 * SS)
+    return layer, sh
 
-# ---------- glass slab: a 16:9 monitor plate, frosted, with rim light and liquid sheen ----------
-box = [136, 246, S - 136, S - 246]          # 752 x 532
-slab_r = 96
-slab_mask = rounded_mask(S, slab_r, box)
+def sphere(center, r, base=(236, 40, 48)):
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0)); px = img.load(); cx, cy = center
+    for y in range(int(cy - r) - 2, int(cy + r) + 3):
+        for x in range(int(cx - r) - 2, int(cx + r) + 3):
+            dx, dy = (x - cx) / r, (y - cy) / r; r2 = dx * dx + dy * dy
+            if r2 <= 1.0:
+                z = math.sqrt(1 - r2)
+                diff = max(0.0, -0.4 * dx - 0.6 * dy + 0.69 * z)
+                spec = max(0.0, -0.3 * dx - 0.5 * dy + 0.81 * z) ** 60
+                fres = (1 - z) ** 3 * 0.35
+                col = tuple(min(255, int(base[i] * (0.28 + 0.8 * diff) + 255 * (spec * 0.95 + fres))) for i in range(3))
+                edge = 255 if r2 < 0.985 else int(255 * (1 - (r2 - 0.985) / 0.015))
+                px[x, y] = (*col, edge)
+    glow = spot(center, r * 2.0, (*base, 120))
+    shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).ellipse([cx - r, cy - r + 12 * SS, cx + r, cy + r + 14 * SS], fill=(0, 0, 0, 160))
+    return Image.alpha_composite(Image.alpha_composite(glow, shadow.filter(ImageFilter.GaussianBlur(12 * SS))), img)
 
-# frosted refraction: blurred + brightened copy of the background inside the slab
-frost = bg.filter(ImageFilter.GaussianBlur(26))
-frost = ImageChops.add(frost, Image.new("RGBA", (S, S), (26, 28, 40, 0)))
-# body tint (white 12% → 4% top to bottom)
-tint = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-tp = tint.load()
-for y in range(box[1], box[3] + 1):
-    a = int(58 - 34 * (y - box[1]) / (box[3] - box[1]))
-    for x in range(box[0], box[2] + 1):
-        tp[x, y] = (255, 255, 255, a)
-glass = Image.alpha_composite(frost, tint)
+# ---------- background: black glass, faint sheen top-left, soft vignette ----------
+bg = Image.new("RGBA", (S, S), (8, 8, 10, 255))
+bg = Image.alpha_composite(bg, spot((S * 0.22, S * 0.12), S * 0.7, (255, 255, 255, 26)))
+bg = Image.alpha_composite(bg, spot((S * 0.9, S * 1.0), S * 0.6, (0, 0, 0, 120)))
+# fine diagonal sheen band across the top (liquid highlight on black glass)
+band = Image.new("RGBA", (S, S), (0, 0, 0, 0)); bd = ImageDraw.Draw(band)
+bd.polygon([(0, S * 0.05), (S, -S * 0.25), (S, S * 0.02), (0, S * 0.32)], fill=(255, 255, 255, 18))
+bg = Image.alpha_composite(bg, band.filter(ImageFilter.GaussianBlur(30 * SS)))
 
-# liquid sheen: a soft, tilted highlight lobe across the upper part
-sheen = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-sd = ImageDraw.Draw(sheen)
-sd.ellipse([box[0] - 80, box[1] - 260, box[2] - 120, box[1] + 230], fill=(255, 255, 255, 120))
-sd.ellipse([box[0] + 40, box[1] + 10, box[0] + 420, box[1] + 130], fill=(255, 255, 255, 70))
-sheen = sheen.filter(ImageFilter.GaussianBlur(48))
-glass = Image.alpha_composite(glass, sheen)
-# bottom inner shadow (depth)
-shade = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-ImageDraw.Draw(shade).rounded_rectangle([box[0], box[3] - 140, box[2], box[3] + 40], radius=slab_r, fill=(0, 0, 0, 70))
-glass = Image.alpha_composite(glass, shade.filter(ImageFilter.GaussianBlur(40)))
+# ---------- monogram: CHM in glass ----------
+mark = Image.new("L", (S, S), 0); md = ImageDraw.Draw(mark)
+f_big = font(int(330 * SS), "Heavy")
+text = "CHM"
+tw = md.textlength(text, font=f_big)
+tx, ty = (S - tw) / 2 - 22 * SS, S * 0.30
+md.text((tx, ty), text, font=f_big, fill=255)
+glass_layer, glass_shadow = glass(bg, mark, body_alpha=(150, 80), refract=8 * SS, blur=10 * SS)
+bead_c = (tx + tw + 40 * SS, ty + 330 * SS * 0.62 + 40 * SS)      # sits after the M like a period, baseline-aligned
+bead = sphere(bead_c, 34 * SS)
 
-# rim light: 1.5px bright edge, stronger at top-left, plus a thin dark edge at bottom-right
-rim = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-rd = ImageDraw.Draw(rim)
-for i, a in [(0, 200), (1, 120), (2, 60)]:
-    rd.rounded_rectangle([box[0] + i, box[1] + i, box[2] - i, box[3] - i], radius=slab_r - i, outline=(255, 255, 255, a), width=1)
-rim_grad = Image.new("L", (S, S), 0)
-rp = rim_grad.load()
-for y in range(S):
-    for x in range(S):
-        rp[x, y] = int(255 * max(0.15, 1 - ((x / S) * 0.55 + (y / S) * 0.75)))
-rim.putalpha(ImageChops.multiply(rim.split()[3], rim_grad))
-glass = Image.alpha_composite(glass, rim)
-
-glass_layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-glass_layer.paste(glass, (0, 0), slab_mask)
-# drop shadow under the slab
-shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-ImageDraw.Draw(shadow).rounded_rectangle([box[0] + 6, box[1] + 30, box[2] + 6, box[3] + 34], radius=slab_r, fill=(0, 0, 0, 150))
-shadow = shadow.filter(ImageFilter.GaussianBlur(34))
-
-# ---------- symbol: white glass viewfinder brackets + 3D REC bead ----------
-sym = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-d = ImageDraw.Draw(sym)
-w = 22           # stroke
-L = 118          # bracket arm length
-ax, ay, bx, by = box[0] + 96, box[1] + 84, box[2] - 96, box[3] - 84
-for (x, y, dx, dy) in [(ax, ay, 1, 1), (bx, ay, -1, 1), (ax, by, 1, -1), (bx, by, -1, -1)]:
-    d.rounded_rectangle([min(x, x + dx * L), y - w / 2, max(x, x + dx * L), y + w / 2], radius=w / 2, fill=(255, 255, 255, 255))
-    d.rounded_rectangle([x - w / 2, min(y, y + dy * L), x + w / 2, max(y, y + dy * L)], radius=w / 2, fill=(255, 255, 255, 255))
-# centre marker (small cross with a gap)
-cx, cy = S / 2, S / 2
-g, s_ = 26, 74
-for (x0, y0, x1, y1) in [(cx - s_, cy, cx - g, cy), (cx + g, cy, cx + s_, cy), (cx, cy - s_, cx, cy - g), (cx, cy + g, cx, cy + s_)]:
-    d.line([(x0, y0), (x1, y1)], fill=(255, 255, 255, 235), width=10)
-# glassify the white strokes: gradient alpha (brighter top) + inner bevel highlight
-sym_a = sym.split()[3]
-grad = Image.new("L", (S, S), 0)
-gp = grad.load()
-for y in range(S):
-    v = int(255 * (0.78 + 0.22 * (1 - y / S)))
-    for x in range(S):
-        gp[x, y] = v
-sym.putalpha(ImageChops.multiply(sym_a, grad))
-bevel = sym_a.filter(ImageFilter.GaussianBlur(3))
-bevel = ImageChops.subtract(sym_a, ImageChops.offset(bevel, 0, 4))
-bevel_img = Image.new("RGBA", (S, S), (255, 255, 255, 0)); bevel_img.putalpha(bevel.point(lambda v: min(255, v * 2)))
-sym = Image.alpha_composite(sym, bevel_img)
-# soft shadow under the strokes
-sym_shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0)); sym_shadow.putalpha(sym_a.point(lambda v: v * 120 // 255))
-sym_shadow = ImageChops.offset(sym_shadow.filter(ImageFilter.GaussianBlur(10)), 0, 10)
-
-# REC bead: 3D red sphere, bottom-right inside the brackets
-bead = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-bcx, bcy, br = bx - 100, by - 96, 68
-bpx = bead.load()
-for y in range(int(bcy - br) - 2, int(bcy + br) + 3):
-    for x in range(int(bcx - br) - 2, int(bcx + br) + 3):
-        dx, dy = (x - bcx) / br, (y - bcy) / br
-        r2 = dx * dx + dy * dy
-        if r2 <= 1.0:
-            z = math.sqrt(1 - r2)
-            # lighting from top-left
-            n_l = max(0.0, (-0.45 * dx - 0.6 * dy + 0.66 * z))
-            spec = max(0.0, (-0.35 * dx - 0.55 * dy + 0.76 * z)) ** 40
-            base = (232, 34, 44)
-            col = tuple(min(255, int(base[i] * (0.35 + 0.75 * n_l) + 255 * spec * 0.9)) for i in range(3))
-            edge = 255 if r2 < 0.94 else int(255 * (1 - (r2 - 0.94) / 0.06))
-            bpx[x, y] = (*col, edge)
-bead_glow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-ImageDraw.Draw(bead_glow).ellipse([bcx - br * 1.7, bcy - br * 1.7, bcx + br * 1.7, bcy + br * 1.7], fill=(255, 40, 50, 120))
-bead_glow = bead_glow.filter(ImageFilter.GaussianBlur(40))
-bead_shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-ImageDraw.Draw(bead_shadow).ellipse([bcx - br, bcy - br + 16, bcx + br, bcy + br + 18], fill=(0, 0, 0, 140))
-bead_shadow = bead_shadow.filter(ImageFilter.GaussianBlur(16))
-
-symbol_layer = Image.alpha_composite(Image.alpha_composite(Image.alpha_composite(Image.alpha_composite(sym_shadow, sym), bead_glow), bead_shadow), bead)
+# ---------- wordmark along the bottom ----------
+word = Image.new("RGBA", (S, S), (0, 0, 0, 0)); wd = ImageDraw.Draw(word)
+f_small = font(int(60 * SS), "Semibold")
+label = "CINEMA HUD MONITOR"
+# letter-spaced
+spacing = 8 * SS
+total = sum(wd.textlength(ch, font=f_small) for ch in label) + spacing * (len(label) - 1)
+x = (S - total) / 2; y = S * 0.735
+for ch in label:
+    wd.text((x, y), ch, font=f_small, fill=(235, 235, 240, 255))
+    x += wd.textlength(ch, font=f_small) + spacing
+word_glow = word.filter(ImageFilter.GaussianBlur(6 * SS))
+word_layer = Image.alpha_composite(word_glow.point(lambda v: v), word)
 
 # ---------- compose ----------
-full = Image.alpha_composite(bg, shadow)
+full = Image.alpha_composite(bg, glass_shadow)
 full = Image.alpha_composite(full, glass_layer)
-full = Image.alpha_composite(full, symbol_layer)
+full = Image.alpha_composite(full, bead)
+full = Image.alpha_composite(full, word_layer)
 
-ios = full.convert("RGB")                       # App Store icons must be opaque, no alpha
-ios.save(f"{OUT}/AppIcon-iOS-1024.png")
-mac = full.copy(); mac.putalpha(squircle_mask(S))
-mac.save(f"{OUT}/AppIcon-macOS-1024.png")
-bg.convert("RGB").save(f"{OUT}/layer-background.png")
-glass_layer.save(f"{OUT}/layer-glass.png")
-symbol_layer.save(f"{OUT}/layer-symbol.png")
-print("wrote", os.listdir(OUT))
+def down(img): return img.resize((1024, 1024), Image.LANCZOS)
+ios = down(full).convert("RGB"); ios.save(f"{OUT}/AppIcon-iOS-1024.png")
+mac = down(full).copy(); mac.putalpha(squircle_mask(1024)); mac.save(f"{OUT}/AppIcon-macOS-1024.png")
+down(bg).convert("RGB").save(f"{OUT}/layer-background.png")
+down(Image.alpha_composite(glass_shadow, glass_layer)).save(f"{OUT}/layer-glass.png")
+down(Image.alpha_composite(bead, word_layer)).save(f"{OUT}/layer-symbol.png")
+ios.resize((512, 512), Image.LANCZOS).save(f"{OUT}/preview.png")
+print("ok")
