@@ -32,6 +32,30 @@ final class AssistControllerTests: XCTestCase {
         XCTAssertNil(c.pendingAF)
         XCTAssertTrue(c.lines.isEmpty)
     }
+    func testModelLinesArriveAndAChangeInsideTheCoolDownIsDeferredNotDropped() async throws {
+        let calls = Calls()
+        let c = AssistController(useModel: false) { prompt in
+            await calls.add(prompt)
+            var lines = [(finding: "face-under", text: "Face buried in shadow")]
+            if prompt.contains("[focus-failed]") { lines.append((finding: "focus-failed", text: "Autofocus gave up")) }
+            return lines
+        }
+        c.modelInterval = 0.3
+        for _ in 0 ..< 2 { c.ingest(measurements: under(), state: state(), profile: .standard, projectFPS: 24, shootingMode: .video) }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(c.lines, [AdviceLine(id: "face-under", text: "FACE BURIED IN SHADOW", fromModel: true)])
+        // A new finding right away: inside the cool-down, so the call waits and then runs.
+        var s = state(); s.focusStatus = "Failed"
+        for _ in 0 ..< 2 { c.ingest(measurements: under(), state: s, profile: .standard, projectFPS: 24, shootingMode: .video) }
+        XCTAssertEqual(c.lines.map(\.fromModel), [false, false])         // facts while waiting
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(c.lines.map(\.text), ["FACE BURIED IN SHADOW", "AUTOFOCUS GAVE UP"])
+        let n = await calls.count
+        XCTAssertEqual(n, 2)
+        XCTAssertEqual(c.severity(for: "face-under"), .warn)
+    }
+    private actor Calls { var prompts: [String] = []; func add(_ p: String) { prompts.append(p) }; var count: Int { prompts.count } }
+
     func testDisplayToSensorUndoesTheDisplayRotation() {
         let p = CGPoint(x: 0.2, y: 0.7)
         func near(_ a: CGPoint, _ b: CGPoint, line: UInt = #line) {
