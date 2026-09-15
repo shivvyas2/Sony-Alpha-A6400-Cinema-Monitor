@@ -121,6 +121,27 @@ measured to match the plain path within 1/255. Nothing alters the picture unless
 the bottom strip shows **NATIVE** when no LUT, effect, denoise, interpolation or sharpening is active.
 For the most faithful view on an external monitor, use its sRGB or Rec.709 preset, or a calibrated profile.
 
+### GPU pipeline
+
+Every per-pixel stage runs on the Mac's GPU and stays there: the decoded frame is uploaded once,
+Core Image applies the LUT, false colour, zebras, peaking and rotation as one lazy graph rendered
+directly into the Metal renderer's texture, MetalFX (or Lanczos) scales it to the display, the
+optional detail pass runs as a compute kernel, and the layer is presented colour-managed. Motion
+interpolation and denoise output Metal textures that are wrapped without copying. Scopes sample a
+256×96 tile the GPU downscales. Measured on the simulator feed: enhance + LUT + waveform dropped
+from 72% to about 14% of one CPU core; motion ×4 with denoise sits near 45%, which is the optical
+flow scheduling and the 60–120 frames per second of view updates, not pixel work.
+
+### Wi-Fi performance
+
+The processing path is identical over Wi-Fi; the difference is the link. The camera's Wi-Fi
+serves the same 1024-wide JPEG stream, typically at a lower and less steady rate than USB, with
+100–300 ms of latency and occasional stalls. The app always shows the newest frame (no backlog),
+restarts the stream and re-runs the handshake automatically on a drop, and the interpolator
+adapts to whatever rate arrives. Expect fewer real frames per second than USB, more delay, and
+identical colour and tools. Stay within a few metres with line of sight; the camera's radio is
+the limit, not the Mac.
+
 ### What "true quality" means here
 
 The recording is not affected by any of this. The camera writes its full 4K or 1080p file

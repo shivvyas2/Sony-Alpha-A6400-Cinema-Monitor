@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreImage
 import ImageIO
 import Observation
 
@@ -22,7 +23,8 @@ public final class CameraSession {
     public private(set) var state = CameraState()
     /// Generic settings for the menu (drive, metering, DRO, …), refreshed with the state.
     public private(set) var settings: [CameraSetting] = []
-    public private(set) var frame: CGImage?
+    /// Latest picture as a raw-value Core Image (no colour management applied yet; the display tags it).
+    public private(set) var frame: CIImage?
     public private(set) var frameSize: CGSize = .zero
     public private(set) var fps: Double = 0
     /// Frames per second actually arriving from the camera (before any interpolation).
@@ -204,15 +206,15 @@ public final class CameraSession {
                     Task { @MainActor [weak self] in self?.display(out) }
                 }
             } else {
-                display(img)
+                display(CIImage(cgImage: img, options: [.colorSpace: NSNull()]))
             }
         }
         throw CancellationError()
     }
 
-    private func display(_ img: CGImage) {
+    private func display(_ img: CIImage) {
         frame = img
-        frameSize = CGSize(width: img.width, height: img.height)
+        frameSize = img.extent.size
         displayCount += 1
         let elapsed = Date().timeIntervalSince(displayWindow)
         if elapsed >= 1 { fps = Double(displayCount) / elapsed; displayCount = 0; displayWindow = Date() }

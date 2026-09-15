@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreImage
 import Metal
 import Vision
 import CoreVideo
@@ -19,7 +20,12 @@ public final class MotionInterpolator: @unchecked Sendable {
     private let nrPipeline: MTLComputePipelineState
     private let work = DispatchQueue(label: "cinemahud.motion", qos: .userInteractive)
     private var prev: (image: CGImage, texture: MTLTexture, time: TimeInterval)?
-    private var texA: MTLTexture?, texB: MTLTexture?, texFlow: MTLTexture?, texOut: MTLTexture?, texNR: MTLTexture?, texNRPrev: MTLTexture?
+    private var texA: MTLTexture?, texB: MTLTexture?, texFlow: MTLTexture?, texNRPrev: MTLTexture?
+    /// Ring of output textures so frames still on screen are not overwritten by the next batch.
+    private var ring: [MTLTexture] = []
+    private var ringIndex = 0
+    /// Raw-value CIImage (no colour management) wrapping a texture; the display tags it later.
+    private static let rawOptions: [CIImageOption: Any] = [.colorSpace: NSNull()]
     private var scratch: UnsafeMutableRawPointer?
     private var scratchSize = 0
     public private(set) var lastFlowMillis: Double = 0
@@ -100,40 +106,41 @@ public final class MotionInterpolator: @unchecked Sendable {
 
     /// Drop pending state (e.g. when toggled off or the stream restarts).
     public func reset() {
-        work.async { self.prev = nil; self.texNRPrev = nil; self.generation += 1 }
+        work.async { self.prev = nil; self.texNRPrev = nil; self.prevClean = nil; self.generation += 1 }
     }
 
-    /// Feed a real frame. `emit` receives frames to display, in order, on the work queue.
-    public func push(_ image: CGImage, at time: TimeInterval, emit: @escaping @Sendable (CGImage) -> Void) {
+    /// Feed a real frame. `emit` receives frames to display, in order, on the work queue. Outputs are
+    /// raw-value CIImages: either the source picture or a GPU texture, so nothing is read back to the CPU.
+    public func push(_ image: CGImage, at time: TimeInterval, emit: @escaping @Sendable (CIImage) -> Void) {
         work.async {
             let gen = self.generation
             let factor = max(1, self.factor), nr = max(0, min(1, self.denoise))
-            guard factor > 1 || nr > 0 else { emit(image); return }
-            guard var texB = self.upload(image, into: &self.texB) else { emit(image); return }
-            var current = image
+            let raw = CIImage(cgImage: image, options: Self.rawOptions)
+            guard factor > 1 || nr > 0 else { emit(raw); return }
+            guard let texB = self.upload(image, into: &self.texB) else { emit(raw); return }
             guard let prev = self.prev, prev.image.width == image.width, prev.image.height == image.height else {
                 if nr > 0 { self.seedNR(from: texB) }
                 self.prev = (image, texB, time)
                 self.swapB()
-                if factor == 1 { emit(image) }
+                if factor == 1 { emit(raw) }
                 return
             }
             let t0 = CFAbsoluteTimeGetCurrent()
+            // Flow is estimated on the raw frames; the cleaned history texture is what gets warped.
             guard let flow = self.opticalFlow(from: prev.image, to: image) else {
-                self.prev = (image, texB, time); self.swapB(); emit(image); return
+                self.prev = (image, texB, time); self.swapB(); emit(raw); return
             }
-            // 1. Temporal NR on the new frame (result replaces B for everything downstream).
-            if nr > 0, let cleaned = self.temporalNR(cur: texB, flow: flow, strength: nr), let cleanedImage = self.readback(cleaned) {
-                current = cleanedImage
-                if let t = self.upload(cleanedImage, into: &self.texB) { texB = t }
-            }
+            // 1. Temporal NR: cleaned frame lives in `texNRPrev` (history) and is what we display / warp.
+            var displayB: MTLTexture = texB
+            if nr > 0, let cleaned = self.temporalNR(cur: texB, flow: flow, strength: nr) { displayB = cleaned }
+            let aTexture = nr > 0 ? (self.prevClean ?? prev.texture) : prev.texture
             // 2. Motion: emit A now (one frame late), then the in-betweens on schedule.
             if factor > 1 {
-                emit(prev.image)
+                emit(self.wrap(aTexture))
                 let interval = max(0.01, time - prev.time)
-                var frames: [CGImage] = []
+                var frames: [CIImage] = []
                 for k in 1 ..< factor {
-                    if let tex = self.warp(a: prev.texture, b: texB, flow: flow, t: Float(k) / Float(factor)), let img = self.readback(tex) { frames.append(img) }
+                    if let tex = self.warp(a: aTexture, b: displayB, flow: flow, t: Float(k) / Float(factor)) { frames.append(self.wrap(tex)) }
                 }
                 self.lastFlowMillis = (CFAbsoluteTimeGetCurrent() - t0) * 1000
                 for (i, f) in frames.enumerated() {
@@ -145,11 +152,42 @@ public final class MotionInterpolator: @unchecked Sendable {
                 }
             } else {
                 self.lastFlowMillis = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-                emit(current)
+                emit(self.wrap(displayB))
             }
-            self.prev = (current, texB, time)
+            // Keep the cleaned B as history for the next pair (copy: texB is recycled as the next upload target).
+            if nr > 0 { self.prevClean = self.copyToRing(displayB) } else { self.prevClean = nil }
+            self.prev = (image, texB, time)
             self.swapB()
         }
+    }
+
+    /// Cleaned copy of the previous frame (denoise on), used as the "A" side of interpolation.
+    private var prevClean: MTLTexture?
+
+    private func wrap(_ tex: MTLTexture) -> CIImage {
+        // Texture rows are top-down; present the image bottom-up like a CGImage-backed CIImage so the
+        // display's single flip lands both sources the same way up.
+        (CIImage(mtlTexture: tex, options: Self.rawOptions) ?? CIImage.empty()).oriented(.downMirrored)
+    }
+
+    private func nextRing(w: Int, h: Int) -> MTLTexture? {
+        if ring.isEmpty || ring[0].width != w || ring[0].height != h {
+            ring = (0 ..< 12).compactMap { _ in
+                let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
+                d.usage = [.shaderWrite, .shaderRead]; d.storageMode = .private
+                return device.makeTexture(descriptor: d)
+            }
+            ringIndex = 0
+        }
+        guard !ring.isEmpty else { return nil }
+        let t = ring[ringIndex]; ringIndex = (ringIndex + 1) % ring.count
+        return t
+    }
+
+    private func copyToRing(_ src: MTLTexture) -> MTLTexture? {
+        guard let dst = nextRing(w: src.width, h: src.height), let cb = queue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() else { return nil }
+        blit.copy(from: src, to: dst); blit.endEncoding(); cb.commit()
+        return dst
     }
 
     private func swapB() { let old = texA; texA = texB; texB = old }
@@ -183,7 +221,7 @@ public final class MotionInterpolator: @unchecked Sendable {
     private func outputTexture(_ slot: inout MTLTexture?, w: Int, h: Int) -> MTLTexture? {
         if slot == nil || slot!.width != w || slot!.height != h {
             let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
-            d.usage = [.shaderWrite, .shaderRead]; d.storageMode = .managed
+            d.usage = [.shaderWrite, .shaderRead]; d.storageMode = .private
             slot = device.makeTexture(descriptor: d)
         }
         return slot
@@ -199,14 +237,13 @@ public final class MotionInterpolator: @unchecked Sendable {
         let tg = MTLSize(width: 16, height: 16, depth: 1)
         enc.dispatchThreadgroups(MTLSize(width: (out.width + 15) / 16, height: (out.height + 15) / 16, depth: 1), threadsPerThreadgroup: tg)
         enc.endEncoding()
-        if let blit = cb.makeBlitCommandEncoder() { blit.synchronize(resource: out); blit.endEncoding() }
         cb.commit()
         cb.waitUntilCompleted()
         return true
     }
 
     private func warp(a: MTLTexture, b: MTLTexture, flow: MTLTexture, t: Float) -> MTLTexture? {
-        guard let out = outputTexture(&texOut, w: a.width, h: a.height) else { return nil }
+        guard let out = nextRing(w: a.width, h: a.height) else { return nil }
         return run(warpPipeline, textures: [a, b, flow], out: out, params: Params(t: t, strength: 0, threshold: 0)) ? out : nil
     }
 
@@ -216,25 +253,13 @@ public final class MotionInterpolator: @unchecked Sendable {
     }
 
     private func temporalNR(cur: MTLTexture, flow: MTLTexture, strength: Float) -> MTLTexture? {
-        guard let prevClean = outputTexture(&texNRPrev, w: cur.width, h: cur.height), let out = outputTexture(&texNR, w: cur.width, h: cur.height) else { return nil }
+        guard let prevClean = outputTexture(&texNRPrev, w: cur.width, h: cur.height), let out = nextRing(w: cur.width, h: cur.height) else { return nil }
         // strength maps to how much history is kept; threshold is the RGB difference beyond which history is ignored
         let ok = run(nrPipeline, textures: [cur, prevClean, flow], out: out, params: Params(t: 0, strength: 0.55 + 0.35 * strength, threshold: 0.10 + 0.10 * strength))
         guard ok else { return nil }
         // the cleaned frame becomes the history for the next one
         if let cb = queue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() { blit.copy(from: out, to: prevClean); blit.endEncoding(); cb.commit(); cb.waitUntilCompleted() }
         return out
-    }
-
-    private func readback(_ tex: MTLTexture) -> CGImage? {
-        let w = tex.width, h = tex.height, bpr = w * 4
-        ensureScratch(bpr * h)
-        guard let scratch else { return nil }
-        tex.getBytes(scratch, bytesPerRow: bpr, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
-        guard let provider = CGDataProvider(data: Data(bytes: scratch, count: bpr * h) as CFData) else { return nil }
-        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bpr,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
     private func ensureScratch(_ n: Int) {

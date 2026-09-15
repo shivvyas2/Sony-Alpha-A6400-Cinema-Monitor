@@ -6,7 +6,8 @@ import MetalPerformanceShaders
 /// Draws the live view through Metal. In enhanced mode the frame is upscaled with MetalFX's
 /// spatial scaler (edge-aware reconstruction, no added latency); otherwise Lanczos resampling.
 struct MetalFrameView: NSViewRepresentable {
-    var image: CGImage?
+    /// Lazy Core Image pipeline output; rendered by the GPU straight into the renderer's texture.
+    var image: CIImage?
     var enhanced: Bool
     /// Detail-recovery amount after upscaling (0 = pure reconstruction, colour and tone untouched).
     var sharpen: Float = 0
@@ -47,16 +48,16 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
     private lazy var lanczos = MPSImageLanczosScale(device: device)
     private let metalFXSupported: Bool
 
-    var image: CGImage?
+    var image: CIImage?
     var imageDirty = false
     var enhanced = false
     var colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+    private lazy var ciContext = CIContext(mtlDevice: device, options: [.cacheIntermediates: false, .name: "CinemaHUD.display"])
     /// Last output size, for the HUD.
     private(set) var outputSize: CGSize = .zero
     static let outputSizeChanged = Notification.Name("CinemaHUD.outputSizeChanged")
 
     private var input: MTLTexture?
-    private var upload: (data: UnsafeMutableRawPointer, bytesPerRow: Int, w: Int, h: Int)?
     private var scaler: MTLFXSpatialScaler?
     private var scalerOutput: MTLTexture?
     private var sharpenPipeline: MTLComputePipelineState?
@@ -97,17 +98,28 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
             sharpenPipeline = try? device.makeComputePipelineState(function: fn)
         }
     }
-    deinit { upload?.data.deallocate() }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
         guard let image, let drawable = view.currentDrawable, let cb = queue.makeCommandBuffer() else { return }
-        if imageDirty || input == nil || input!.width != image.width || input!.height != image.height {
-            uploadFrame(image)
-            imageDirty = false
+        let iw = Int(image.extent.width.rounded()), ih = Int(image.extent.height.rounded())
+        guard iw > 0, ih > 0 else { return }
+        if input == nil || input!.width != iw || input!.height != ih {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: iw, height: ih, mipmapped: false)
+            d.usage = [.shaderRead, .shaderWrite, .renderTarget]
+            d.storageMode = .private
+            input = device.makeTexture(descriptor: d)
+            scaler = nil
         }
         guard let input else { return }
+        if imageDirty {
+            // Core Image runs the whole filter chain on the GPU straight into the texture. CI images are
+            // bottom-up and Metal textures top-down, so flip once here (the only place it matters).
+            let flipped = image.oriented(.downMirrored)
+            ciContext.render(flipped, to: input, commandBuffer: cb, bounds: flipped.extent, colorSpace: colorSpace)
+            imageDirty = false
+        }
         let dst = drawable.texture
         let useFX = enhanced && metalFXSupported && dst.width >= input.width && dst.height >= input.height
         if useFX, let scaler = spatialScaler(inW: input.width, inH: input.height, outW: dst.width, outH: dst.height),
@@ -141,27 +153,6 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
         }
         cb.present(drawable)
         cb.commit()
-    }
-
-    /// CGImage → BGRA8 texture (reused; replaced in place each frame).
-    private func uploadFrame(_ image: CGImage) {
-        let w = image.width, h = image.height, bpr = w * 4
-        if upload == nil || upload!.w != w || upload!.h != h {
-            upload?.data.deallocate()
-            upload = (UnsafeMutableRawPointer.allocate(byteCount: bpr * h, alignment: 16), bpr, w, h)
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
-            d.usage = [.shaderRead]
-            d.storageMode = .managed
-            input = device.makeTexture(descriptor: d)
-            scaler = nil
-        }
-        guard let up = upload, let input else { return }
-        let cs = colorSpace
-        let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        if let ctx = CGContext(data: up.data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: bpr, space: cs, bitmapInfo: info) {
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        input.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: up.data, bytesPerRow: bpr)
     }
 
     private func sharpenTexture(w: Int, h: Int) -> MTLTexture? {
