@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import SonyCameraKit
+import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -43,8 +44,13 @@ struct CinemaHUDApp: App {
                     } label: {
                         HStack { Text(ratio.menuTitle); if overlays.crop == ratio { Image(systemName: "checkmark") } }
                     }
-                    .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: [])
+                    .keyboardShortcut(KeyEquivalent(Character(i < 9 ? "\(i + 1)" : "0")), modifiers: [])
                 }
+                Divider()
+                Picker("Rotate Display", selection: $overlays.rotation) {
+                    Text("0°").tag(0); Text("90° (camera tilted right)").tag(90); Text("270° (camera tilted left)").tag(270)
+                }
+                Button("Cycle Rotation") { overlays.rotation = (overlays.rotation + 90) % 360; if overlays.rotation == 180 { overlays.rotation = 270 } }.keyboardShortcut("t", modifiers: [])
                 Divider()
                 Text("Crop a scope ratio to fill an ultrawide monitor. Use View › Enter Full Screen (⌃⌘F).")
             }
@@ -55,7 +61,20 @@ struct CinemaHUDApp: App {
                 Toggle("Focus Peaking", isOn: $overlays.peaking).keyboardShortcut("p", modifiers: [])
                 Toggle("Zebras", isOn: $overlays.zebra).keyboardShortcut("z", modifiers: [])
                 Toggle("False Color", isOn: $overlays.falseColor).keyboardShortcut("v", modifiers: [])
-                Toggle("Waveform Scope", isOn: $overlays.waveform).keyboardShortcut("w", modifiers: [])
+                Toggle("2× Magnify", isOn: $overlays.magnify).keyboardShortcut("x", modifiers: [])
+                Picker("Scope", selection: $overlays.scope) {
+                    ForEach(ScopeKind.allCases) { Text($0.title).tag($0) }
+                }
+                Button("Cycle Scope") { overlays.scope = overlays.scope.next }.keyboardShortcut("w", modifiers: [])
+                Divider()
+                Picker("Camera Picture Profile", selection: $overlays.profile) {
+                    ForEach(PictureProfile.allCases) { Text($0.rawValue).tag($0) }
+                }
+                Toggle("Apply Display LUT (709 view)", isOn: $overlays.lutOn).keyboardShortcut("l", modifiers: [])
+                Button("Load .cube LUT…") { loadLUT() }
+                Button("Clear Custom LUT") { overlays.customLUT = nil; overlays.customLUTName = nil }.disabled(overlays.customLUT == nil)
+                Divider()
+                Toggle("Settings Menu", isOn: $overlays.showMenu).keyboardShortcut("n", modifiers: [])
                 Divider()
                 Toggle("Enhanced Upscaling (MetalFX)", isOn: $overlays.enhanced).keyboardShortcut("e", modifiers: [])
                 Toggle("Smooth Motion (interpolated ×2, adds one frame of delay)", isOn: Binding(get: { session.smoothMotion }, set: { session.smoothMotion = $0 })).keyboardShortcut("m", modifiers: [])
@@ -72,7 +91,7 @@ struct CinemaHUDApp: App {
 /// Aspect crop applied to the live view. Cropping to a cinema ratio lets the frame fill an
 /// ultrawide (21:9) monitor edge to edge instead of letterboxing a 3:2 or 16:9 feed.
 enum CropRatio: String, CaseIterable, Identifiable {
-    case native, r16x9, r185, r200, r235, r239
+    case native, r16x9, r185, r200, r235, r239, r1x1, r4x5, r9x16
     var id: String { rawValue }
     var value: Double? {
         switch self {
@@ -82,6 +101,9 @@ enum CropRatio: String, CaseIterable, Identifiable {
         case .r200: return 2.0
         case .r235: return 2.35
         case .r239: return 2.39
+        case .r1x1: return 1.0
+        case .r4x5: return 0.8
+        case .r9x16: return 9.0 / 16.0
         }
     }
     var label: String {
@@ -92,6 +114,9 @@ enum CropRatio: String, CaseIterable, Identifiable {
         case .r200: return "2.00"
         case .r235: return "2.35"
         case .r239: return "2.39"
+        case .r1x1: return "1:1"
+        case .r4x5: return "4:5"
+        case .r9x16: return "9:16"
         }
     }
     var menuTitle: String {
@@ -102,9 +127,30 @@ enum CropRatio: String, CaseIterable, Identifiable {
         case .r200: return "2.00:1 Univisium"
         case .r235: return "2.35:1 Scope"
         case .r239: return "2.39:1 Scope"
+        case .r1x1: return "1:1 Square (feed)"
+        case .r4x5: return "4:5 Portrait (feed)"
+        case .r9x16: return "9:16 Vertical (Reels / Stories / TikTok)"
         }
     }
     var next: CropRatio { let all = Self.allCases; return all[(all.firstIndex(of: self)! + 1) % all.count] }
+}
+
+extension CinemaHUDApp {
+    func loadLUT() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "cube")!]
+        panel.title = "Choose a .cube LUT"
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let (data, n) = try LUTBuilder.loadCube(url)
+                overlays.customLUT = (data, n)
+                overlays.customLUTName = url.deletingPathExtension().lastPathComponent
+                overlays.lutOn = true
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
+    }
 }
 
 @Observable
@@ -123,6 +169,37 @@ final class OverlaySettings {
     var waveform = false
     /// Project frame rate, used for shutter angle and the timecode frame counter.
     var projectFPS = 24
+    /// Picture profile set on the camera body (declared here so LOG/709 can apply the right conversion).
+    var profile: PictureProfile = .standard
+    /// Apply the display LUT (709 view) instead of showing the log feed.
+    var lutOn = true
+    var customLUT: (data: Data, dimension: Int)?
+    var customLUTName: String?
+    var scope: ScopeKind = .none
+    /// 2× centre magnification for focus checks.
+    var magnify = false
+    var showMenu = false
+    var cameraIndex = "A"
+    var reel = 1
+    /// Display rotation in degrees for a camera mounted sideways (vertical shooting).
+    var rotation = 0
+
+    /// The LUT that should be applied to the feed right now, if any.
+    var activeLUT: (data: Data, dimension: Int)? {
+        guard lutOn else { return nil }
+        if let customLUT { return customLUT }
+        if let d = LUTBuilder.cube(for: profile) { return (d, LUTBuilder.dimension) }
+        return nil
+    }
+}
+
+enum ScopeKind: String, CaseIterable, Identifiable {
+    case none = "OFF", waveform = "WFM", parade = "RGB", histogram = "HIST", vector = "VEC"
+    var id: String { rawValue }
+    var next: ScopeKind { let a = Self.allCases; return a[(a.firstIndex(of: self)! + 1) % a.count] }
+    var title: String {
+        switch self { case .none: return "Off"; case .waveform: return "Luma waveform"; case .parade: return "RGB parade"; case .histogram: return "RGB histogram"; case .vector: return "Vectorscope" }
+    }
 }
 
 struct ContentView: View {
@@ -191,7 +268,15 @@ enum DevHooks {
             case "hidehud": overlays.hideHUD = true
             case "enhanced": overlays.enhanced = true
             case "false": overlays.falseColor = true
-            case "waveform": overlays.waveform = true
+            case "waveform": overlays.scope = .waveform
+            case "parade": overlays.scope = .parade
+            case "hist": overlays.scope = .histogram
+            case "vector": overlays.scope = .vector
+            case "menu": overlays.showMenu = true
+            case "magnify": overlays.magnify = true
+            case "rot90": overlays.rotation = 90
+            case "slog3": overlays.profile = .pp8
+            case "log": overlays.lutOn = false
             case "motion": NotificationCenter.default.post(name: .init("CinemaHUD.devMotion"), object: nil)
             default:
                 if tok.hasPrefix("crop=") {

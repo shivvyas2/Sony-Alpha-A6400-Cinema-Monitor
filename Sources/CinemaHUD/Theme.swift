@@ -13,6 +13,8 @@ enum Theme {
     static let ok = Color(red: 0.31, green: 0.78, blue: 0.42)
     static let warn = Color(red: 0.96, green: 0.70, blue: 0.20)
     static let selection = Color.white
+    /// Active-control orange, as on a cinema viewfinder.
+    static let accent = Color(red: 0.96, green: 0.55, blue: 0.13)
 
     // Backwards-compatible names used across views.
     static let amber = warn
@@ -25,6 +27,10 @@ enum Theme {
     /// Secondary numerals (timecode, sub-values).
     static func mono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
         .system(size: size, weight: weight, design: .default).monospacedDigit()
+    }
+    /// Condensed strip values (top/bottom text rows).
+    static func strip(_ size: CGFloat = 17) -> Font {
+        .system(size: size, weight: .semibold, design: .default).width(.condensed).monospacedDigit()
     }
     /// Tiny tracked labels above readouts, the camera-body vernacular.
     static func label(_ size: CGFloat = 9.5) -> Font {

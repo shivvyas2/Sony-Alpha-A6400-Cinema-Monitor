@@ -17,9 +17,24 @@ final class FrameProcessor: @unchecked Sendable {
         stripes = gen.outputImage!.transformed(by: CGAffineTransform(rotationAngle: .pi / 4))
     }
 
+    /// Active display LUT (built-in log conversion or a loaded .cube); nil = show the feed as-is.
+    var lutCube: (data: Data, dimension: Int)? {
+        didSet {
+            guard let lutCube, let f = CIFilter(name: "CIColorCube") else { lutFilter = nil; return }
+            f.setValue(lutCube.dimension, forKey: "inputCubeDimension")
+            f.setValue(lutCube.data, forKey: "inputCubeData")
+            lutFilter = f
+        }
+    }
+    private var lutFilter: CIFilter?
+
     func process(_ image: CGImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false) -> CGImage? {
-        guard peaking || zebra || falseColor else { return image }
-        let src = CIImage(cgImage: image)
+        guard peaking || zebra || falseColor || lutFilter != nil else { return image }
+        var src = CIImage(cgImage: image)
+        if let lutFilter {
+            lutFilter.setValue(src, forKey: kCIInputImageKey)
+            if let o = lutFilter.outputImage { src = o }
+        }
         var out = src
         if falseColor { out = applyFalseColor(to: out) }
         if zebra { out = applyZebra(to: out, source: src, level: zebraLevel) }
@@ -68,6 +83,122 @@ final class FrameProcessor: @unchecked Sendable {
         guard let f = falseColorCube else { return image }
         f.setValue(image, forKey: kCIInputImageKey)
         return f.outputImage ?? image
+    }
+
+    /// Rotates a frame for a camera mounted on its side.
+    func rotated(_ image: CGImage, degrees: Int) -> CGImage? {
+        let src = CIImage(cgImage: image)
+        let o: CGImagePropertyOrientation = degrees == 90 ? .right : (degrees == 270 ? .left : .up)
+        let out = src.oriented(o)
+        return context.createCGImage(out, from: out.extent)
+    }
+
+    // MARK: Scopes
+
+    /// Downsampled RGBA pixels of the frame used by every scope.
+    private func samples(_ image: CGImage, w: Int = 256, h: Int = 96) -> [UInt8]? {
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: cs,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .medium
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return px
+    }
+
+    private func makeImage(_ rgba: [UInt8], width: Int, height: Int) -> CGImage? {
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let provider = CGDataProvider(data: Data(rgba) as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: cs,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider,
+                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+
+    /// RGB histogram: three overlaid channel histograms, 256 bins, log-scaled height.
+    func histogram(_ image: CGImage, width: Int = 256, height: Int = 128) -> CGImage? {
+        guard let px = samples(image) else { return nil }
+        var bins = [[Int]](repeating: [Int](repeating: 0, count: 256), count: 3)
+        var i = 0
+        while i < px.count { bins[0][Int(px[i])] += 1; bins[1][Int(px[i + 1])] += 1; bins[2][Int(px[i + 2])] += 1; i += 4 }
+        let peak = max(1, bins.flatMap { $0 }.max() ?? 1)
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        for x in 0 ..< width {
+            let b = x * 256 / width
+            let heights = (0 ..< 3).map { c in Int(log(1 + Double(bins[c][b])) / log(1 + Double(peak)) * Double(height - 1)) }
+            for y in 0 ..< height {
+                let o = ((height - 1 - y) * width + x) * 4
+                let grat = x % (width / 4) == 0
+                if grat { out[o] = 50; out[o + 1] = 50; out[o + 2] = 50 }
+                if y <= heights[0] { out[o] = 235 }
+                if y <= heights[1] { out[o + 1] = 235 }
+                if y <= heights[2] { out[o + 2] = 235 }
+                out[o + 3] = 255
+            }
+        }
+        return makeImage(out, width: width, height: height)
+    }
+
+    /// RGB parade: three waveforms side by side, one per channel.
+    func parade(_ image: CGImage, width: Int = 300, height: Int = 128) -> CGImage? {
+        guard let px = samples(image) else { return nil }
+        let sw = 256, sh = 96, third = width / 3
+        var counts = [UInt16](repeating: 0, count: width * height)
+        for y in 0 ..< sh { for x in 0 ..< sw {
+            let i = (y * sw + x) * 4
+            for c in 0 ..< 3 {
+                let col = c * third + x * third / sw
+                let row = min(height - 1, Int((1 - Double(px[i + c]) / 255) * Double(height - 1)))
+                counts[row * width + col] &+= 1
+            }
+        } }
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        for i in 0 ..< width * height {
+            let o = i * 4, row = i / width, col = i % width
+            let grat = row == 0 || row == height / 2 || row == height - 1 || col % third == 0
+            if grat { out[o] = 50; out[o + 1] = 50; out[o + 2] = 50 }
+            let c = counts[i]
+            if c > 0 {
+                let v = UInt8(min(255, 100 + Int(c) * 50))
+                switch col / third { case 0: out[o] = v; case 1: out[o + 1] = v; default: out[o + 2] = v }
+            }
+            out[o + 3] = 255
+        }
+        return makeImage(out, width: width, height: height)
+    }
+
+    /// Vectorscope: chroma (Cb, Cr) plot with 75% colour targets.
+    func vectorscope(_ image: CGImage, size: Int = 160) -> CGImage? {
+        guard let px = samples(image) else { return nil }
+        var counts = [UInt16](repeating: 0, count: size * size)
+        let c = Double(size) / 2, r = Double(size) / 2 - 2
+        var i = 0
+        while i < px.count {
+            let R = Double(px[i]) / 255, G = Double(px[i + 1]) / 255, B = Double(px[i + 2]) / 255
+            let cb = -0.1146 * R - 0.3854 * G + 0.5 * B      // BT.709, range ±0.5
+            let cr = 0.5 * R - 0.4542 * G - 0.0458 * B
+            let x = Int(c + cb * 2 * r), y = Int(c - cr * 2 * r)
+            if x >= 0, x < size, y >= 0, y < size { counts[y * size + x] &+= 1 }
+            i += 4
+        }
+        var out = [UInt8](repeating: 0, count: size * size * 4)
+        // graticule: circle + crosshair + 75% targets
+        func plot(_ x: Int, _ y: Int, _ v: UInt8) { if x >= 0, x < size, y >= 0, y < size { let o = (y * size + x) * 4; out[o] = v; out[o + 1] = v; out[o + 2] = v } }
+        for a in stride(from: 0.0, to: 360, by: 0.5) { plot(Int(c + r * cos(a * .pi / 180)), Int(c + r * sin(a * .pi / 180)), 60) }
+        for t in 0 ..< size { plot(t, Int(c), 40); plot(Int(c), t, 40) }
+        let targets: [(String, Double, Double, Double)] = [("R", 0.75, 0, 0), ("Yl", 0.75, 0.75, 0), ("G", 0, 0.75, 0), ("Cy", 0, 0.75, 0.75), ("B", 0, 0, 0.75), ("Mg", 0.75, 0, 0.75)]
+        for (_, R, G, B) in targets {
+            let cb = -0.1146 * R - 0.3854 * G + 0.5 * B, cr = 0.5 * R - 0.4542 * G - 0.0458 * B
+            let tx = Int(c + cb * 2 * r), ty = Int(c - cr * 2 * r)
+            for dx in -3 ... 3 { plot(tx + dx, ty - 3, 140); plot(tx + dx, ty + 3, 140) }
+            for dy in -3 ... 3 { plot(tx - 3, ty + dy, 140); plot(tx + 3, ty + dy, 140) }
+        }
+        for i in 0 ..< size * size {
+            let o = i * 4
+            let n = counts[i]
+            if n > 0 { let v = UInt8(min(255, 110 + Int(n) * 40)); out[o] = v / 2; out[o + 1] = v; out[o + 2] = v / 2 }
+            out[o + 3] = 255
+        }
+        return makeImage(out, width: size, height: size)
     }
 
     // MARK: Waveform scope

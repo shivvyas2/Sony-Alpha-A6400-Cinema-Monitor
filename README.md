@@ -39,42 +39,48 @@ click Discover; allow it.
 
 ### Controls
 
-| Action | Mouse | Key |
+| Action | Where | Key |
 |---|---|---|
-| Change shutter / iris / ISO / EV / WB / focus | click the readout, or scroll over it | |
-| Autofocus (half-press) | AF button | Space |
-| Take a still | SHOT button | Return |
-| Start / stop movie recording | REC button | R |
-| Set AF point | click on the image | |
-| Frame lines (thirds + action-safe corners) / 2.39 guide shading / center marker | FRAME, GUIDE buttons | G, F, C |
-| Focus peaking / zebras | PEAK, ZEBRA buttons | P, Z |
-| False color exposure map | FALSE button | V |
-| Luma waveform scope | SCOPE button | W |
-| Enhanced upscaling (MetalFX) | ENHANCE button | E |
-| Smooth motion (interpolated ×2) | MOTION button | M |
-| Project frame rate (shutter angle, timecode) | FPS readout | |
-| Aspect crop: native, 16:9, 1.85, 2.00, 2.35, 2.39 | crop button cycles | 1 – 6 |
+| Change FPS, shutter, iris, EI, EV, WB, focus mode | click a top-strip readout, or scroll over it | |
+| Autofocus (half-press) / AE lock | AF, AEL (right column) | Space |
+| Manual focus nudge (USB, MF/DMF) | NEAR / FAR, or the menu's focus drive row | |
+| Take a still | STILL | Return |
+| Start / stop movie recording | REC | R |
+| Set AF point (Wi-Fi) | click on the picture | |
+| Frame lines / 2.39 guide / crop | FRAME, GUIDE, CROP (left column) | G, F, 1–9, 0 |
+| Focus peaking / zebras / false color | PEAK, ZEBRA, EXP | P, Z, V |
+| 2× magnify | 2.00× | X |
+| Scopes: waveform, RGB parade, RGB histogram, vectorscope | SCOPE cycles | W |
+| Picture profile / LOG ↔ 709 view / custom .cube LUT | profile badge, LOG/709 button, Overlays menu | L |
+| Enhanced upscaling / smooth motion | ENH, MOTION | E, M |
+| Camera menu (drive, metering, DRO, flash, focus area, image size, aspect, picture effect, …) | MENU | N |
+| Rotate display for vertical mounting | Aspect menu | T |
 | Hide the HUD | | H |
 | Full screen | View › Enter Full Screen | ⌃⌘F |
 
-**Ultrawide monitors:** pick a scope crop (2.35 or 2.39) and enter full screen. The live view
-is cropped to that ratio and fills a 21:9 display edge to edge instead of letterboxing.
+### The monitor
 
-Readouts are dimmed when the camera does not currently allow that change (for example, nothing
-is adjustable in Intelligent Auto, and shutter speed cannot be set in Aperture priority).
+The layout follows a cinema viewfinder. The top strip carries exposure: FPS (project), SHUTTER
+as an angle with the speed beside it, IRIS, EI, EV, WB with the green/magenta shift as CC, and
+FOCUS, plus the profile badge, the exposure mode and the camera index. The bottom strip carries
+status: FCL (focal length, USB), PWR, reel and clip (the clip number is the take counter), STBY
+in green or REC in red with duration, MEDIA remaining and free-running TC. Tool columns sit on
+the edges of the picture; an active tool is orange. Frame lines are red action-safe lines with
+edge ticks; recording adds a red border.
 
-### The HUD
+### Log, LUTs and picture profiles
 
-The layout follows a cinema camera body. The top strip shows recording state and duration,
-free-running timecode with frames at the project frame rate, a take counter, camera and mode,
-then media remaining and battery. The bottom band is the readout row: FPS (project), SHUTTER as
-a shutter angle with the speed underneath, EI, IRIS, WB, EV and FOCUS. Click a readout to pick a
-value or scroll over it to step. While recording, the frame gets a red border and the timecode
-turns red. Color is used only for state: red recording, green confirmed, amber warnings.
+The α6400 does not expose Picture Profile over its remote protocol, so it cannot be switched from
+the Mac. Set PP7 (S-Log2), PP8/PP9 (S-Log3) or PP10 (HLG) on the camera, then tell the monitor
+with the profile badge. **LOG/709** toggles between the flat feed and the built-in conversion to
+Rec.709 (S-Log3/S-Gamut3.Cine, S-Log3/S-Gamut3, S-Log2/S-Gamut, HLG/BT.2020 with a soft highlight
+roll-off). **Load .cube LUT…** applies your own 3D LUT instead. Scopes read the picture after the LUT.
 
-**False color** maps exposure to bands: purple and blue for crushed shadows, green for mid grey
-(38–46 IRE), pink for skin (52–58 IRE), yellow and orange approaching clip, red for clipped.
-**Scope** shows a luma waveform of the current frame.
+### Vertical and social formats
+
+CROP cycles through 1:1, 4:5 and 9:16 as well as the cinema ratios, trimming the sides so you frame
+for Reels, Stories or feed posts. If the camera is mounted sideways in a cage, rotate the display
+by 90° or 270° (T); touch AF coordinates are mapped back to the sensor.
 
 ### Enhanced mode
 

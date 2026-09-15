@@ -20,6 +20,8 @@ public enum ConnectionPhase: Sendable, Equatable {
 public final class CameraSession {
     public private(set) var phase: ConnectionPhase = .idle
     public private(set) var state = CameraState()
+    /// Generic settings for the menu (drive, metering, DRO, …), refreshed with the state.
+    public private(set) var settings: [CameraSetting] = []
     public private(set) var frame: CGImage?
     public private(set) var frameSize: CGSize = .zero
     public private(set) var fps: Double = 0
@@ -84,6 +86,7 @@ public final class CameraSession {
         phase = .connecting(await backend.displayName)
         do {
             state = try await backend.connect()
+            settings = await backend.settings()
             cameraName = await backend.displayName
             phase = .live
             startStateLoop()
@@ -119,6 +122,8 @@ public final class CameraSession {
                     let wasRecording = self.state.isRecording
                     self.state = s
                     if !wasRecording && s.isRecording { self.takes += 1 }
+                    let list = await backend.settings()
+                    if list != self.settings { self.settings = list }
                 }
                 guard let self, !Task.isCancelled else { return }
                 await self.reconnect(after: nil)
@@ -261,6 +266,10 @@ public final class CameraSession {
         await perform("Touch AF") { try await $0.touchAF(x: max(0, min(100, x * 100)), y: max(0, min(100, y * 100))) }
     }
     public func cancelTouchAF() async { await perform("Touch AF") { try await $0.cancelTouchAF() } }
+    public func setSetting(_ id: String, _ value: String) async { await perform("Setting") { try await $0.setSetting(id: id, value: value) } }
+    /// Nudge manual focus: negative = near, positive = far, |steps| = size (1 fine … 7 coarse).
+    public func focusDrive(_ steps: Int) async { await perform("Focus") { try await $0.focusDrive(steps: steps) } }
+    public func press(_ button: CameraButton) async { await perform(button.rawValue) { try await $0.press(button) } }
 
     // MARK: Errors
 

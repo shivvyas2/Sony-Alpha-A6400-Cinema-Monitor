@@ -13,6 +13,12 @@ public enum SonyProp {
     public static let imageSize: UInt16 = 0xD203
     public static let shutterSpeed: UInt16 = 0xD20D
     public static let colorTemperature: UInt16 = 0xD20F
+    public static let ccFilter: UInt16 = 0xD210
+    public static let abFilter: UInt16 = 0xD21C
+    public static let zoom: UInt16 = 0xD214          // focal length × 1,000,000 on bodies that report it
+    public static let aelButton: UInt16 = 0xD2C3
+    public static let felButton: UInt16 = 0xD2C5
+    public static let oneShotButton: UInt16 = 0xD2C7
     public static let aspectRatio: UInt16 = 0xD211
     public static let focusFound: UInt16 = 0xD213
     public static let objectInMemory: UInt16 = 0xD215

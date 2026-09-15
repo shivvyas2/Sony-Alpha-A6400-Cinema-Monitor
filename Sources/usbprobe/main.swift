@@ -115,6 +115,19 @@ Task {
             try await backend.stopMovie()
             for i in 0 ..< 4 { try await Task.sleep(for: .milliseconds(500)); print("  stopped t=\(Double(i + 1) * 0.5)s recState=\(await backend.rawValue(SonyProp.movieRecordingState) ?? -1)") }
         }
+        if args.contains("--settings") {
+            print("\n== Settings menu")
+            for st in await backend.settings() { print("  \(st.id) \(st.name) [\(st.group)] = \(st.current)  settable=\(st.settable)  (\(st.candidates.count) options: \(st.candidates.prefix(6).joined(separator: ", "))\(st.candidates.count > 6 ? ", …" : ""))") }
+        }
+        if let spec = flag("--setting") {
+            let parts = spec.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count == 2, let st = await backend.settings().first(where: { $0.name == parts[0] || $0.id == parts[0] }) {
+                print("\n== Set \(st.name) = \(parts[1])")
+                do { try await backend.setSetting(id: st.id, value: parts[1]); try await Task.sleep(for: .milliseconds(500))
+                     print("  now: \(await backend.settings().first { $0.id == st.id }?.current ?? "?")") }
+                catch { print("  FAILED: \(error.localizedDescription)") }
+            } else { print("unknown setting \(spec)") }
+        }
         if args.contains("--watch") {
             print("\n== Watching property changes (turn dials on the camera; Ctrl-C to stop)")
             var last: [UInt16: Int64] = [:]

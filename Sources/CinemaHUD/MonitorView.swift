@@ -1,6 +1,7 @@
 import SwiftUI
 import SonyCameraKit
 
+/// Cinema monitor layout: exposure strip above, status strip below, picture between, tools on the edges.
 struct MonitorView: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
@@ -10,13 +11,43 @@ struct MonitorView: View {
     @State private var afFlash = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            if !overlays.hideHUD { TopStrip() }
+            ZStack {
+                picture
+                if !overlays.hideHUD {
+                    HStack(spacing: 0) {
+                        LeftTools().padding(.leading, 6)
+                        Spacer()
+                        RightTools().padding(.trailing, 6)
+                    }
+                    if overlays.showMenu {
+                        HStack { Spacer(); SettingsPanel().padding(.trailing, 58) }
+                    }
+                }
+            }
+            if !overlays.hideHUD { BottomStrip() }
+        }
+        .background(Theme.field)
+        .onChange(of: session.frame, initial: true) { _, f in reprocess(f) }
+        .onChange(of: overlays.peaking) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.zebra) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.falseColor) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.scope) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.profile) { _, _ in updateLUT(); reprocess(session.frame) }
+        .onChange(of: overlays.lutOn) { _, _ in updateLUT(); reprocess(session.frame) }
+        .onChange(of: overlays.customLUTName) { _, _ in updateLUT(); reprocess(session.frame) }
+        .onChange(of: overlays.rotation) { _, _ in reprocess(session.frame) }
+        .onAppear { updateLUT() }
+    }
+
+    private var picture: some View {
         GeometryReader { geo in
             let layout = imageLayout(in: geo.size)
             let rect = layout.rect
             ZStack {
                 Color.black
                 if let img = displayImage {
-                    // Draw the full frame scaled so the cropped region exactly fills `rect`, then clip to it.
                     Group {
                         if overlays.enhanced {
                             MetalFrameView(image: img, enhanced: true)
@@ -25,7 +56,7 @@ struct MonitorView: View {
                         }
                     }
                     .frame(width: layout.fullSize.width, height: layout.fullSize.height)
-                    .position(x: rect.midX, y: rect.midY + layout.fullOffsetY)
+                    .position(x: rect.midX, y: rect.midY)
                     .clipShape(Rectangle().path(in: rect))
                 } else {
                     VStack(spacing: 8) {
@@ -35,106 +66,131 @@ struct MonitorView: View {
                 }
                 FrameOverlays(rect: rect)
                 if session.state.isRecording {
-                    Rectangle().stroke(Theme.rec, lineWidth: 3).frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
-                        .allowsHitTesting(false)
+                    Rectangle().stroke(Theme.rec, lineWidth: 3).frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY).allowsHitTesting(false)
                 }
-                afMarker(in: rect)
+                if overlays.magnify {
+                    Text("2.00×").font(Theme.strip(13)).foregroundStyle(Theme.accent)
+                        .position(x: rect.midX, y: rect.minY + 16)
+                }
+                afMarker(in: rect, layout: layout)
                 Color.clear.contentShape(Rectangle())
                     .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
                     .onTapGesture { loc in
-                        // Map the click through the crop back to full-frame coordinates.
-                        let x = loc.x / rect.width
-                        let y = (layout.cropY + loc.y / rect.height * layout.cropHeight)
+                        var x = layout.cropX + loc.x / rect.width * layout.cropWidth
+                        var y = layout.cropY + loc.y / rect.height * layout.cropHeight
+                        // Undo the display rotation so the camera gets sensor coordinates.
+                        if overlays.rotation == 90 { (x, y) = (y, 1 - x) } else if overlays.rotation == 270 { (x, y) = (1 - y, x) }
                         flashAF()
                         Task { await session.touchAF(x: x, y: y) }
                     }
-                if !overlays.hideHUD {
-                    VStack {
-                        TopBar()
-                        Spacer()
-                        HStack(alignment: .bottom) {
-                            if overlays.waveform, let scope {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Image(decorative: scope, scale: 1).resizable().interpolation(.none).frame(width: 256, height: 128)
-                                    HStack { Text("0").font(Theme.mono(9)); Spacer(); Text("LUMA").font(Theme.label(9)).tracking(1.6); Spacer(); Text("100").font(Theme.mono(9)) }
-                                        .foregroundStyle(Theme.dim).frame(width: 256)
-                                }
-                                .padding(6).hudPanel()
-                            }
-                            Spacer()
-                        }
-                        BottomBar()
-                    }
-                    .padding(12)
-                    SideTools().padding(.trailing, 14)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                if overlays.scope != .none, let scope, !overlays.hideHUD {
+                    ScopeInset(kind: overlays.scope, image: scope)
+                        .position(x: rect.minX + 60 + CGFloat(scope.width) / 2, y: rect.maxY - 18 - CGFloat(scope.height) / 2)
                 }
             }
         }
-        .onChange(of: session.frame, initial: true) { _, newFrame in reprocess(newFrame) }
-        .onChange(of: overlays.peaking) { _, _ in reprocess(session.frame) }
-        .onChange(of: overlays.zebra) { _, _ in reprocess(session.frame) }
-        .onChange(of: overlays.falseColor) { _, _ in reprocess(session.frame) }
-        .onChange(of: overlays.waveform) { _, _ in reprocess(session.frame) }
     }
 
-    private var needsProcessing: Bool { overlays.peaking || overlays.zebra || overlays.falseColor }
+    private var needsProcessing: Bool { overlays.peaking || overlays.zebra || overlays.falseColor || overlays.activeLUT != nil || overlays.rotation != 0 }
     private var displayImage: CGImage? { needsProcessing ? processed : session.frame }
+
+    private func updateLUT() { processor.lutCube = overlays.activeLUT }
 
     private func reprocess(_ frame: CGImage?) {
         guard let frame else { processed = nil; scope = nil; return }
         let p = processor, peak = overlays.peaking, zeb = overlays.zebra, lvl = overlays.zebraLevel
-        let fc = overlays.falseColor, wf = overlays.waveform, needs = needsProcessing
+        let fc = overlays.falseColor, kind = overlays.scope, needs = needsProcessing, rot = overlays.rotation
         Task.detached(priority: .userInitiated) {
-            let out = needs ? p.process(frame, peaking: peak, zebra: zeb, zebraLevel: lvl, falseColor: fc) : nil
-            let sc = wf ? p.waveform(frame) : nil
+            var out = needs ? p.process(frame, peaking: peak, zebra: zeb, zebraLevel: lvl, falseColor: fc) : nil
+            if rot != 0, let o = out ?? frame as CGImage? { out = p.rotated(o, degrees: rot) }
+            // Scopes read the picture as displayed (after the LUT), before false colour / peaking paint on it.
+            let base: CGImage = (p.lutCube != nil ? p.process(frame, peaking: false, zebra: false, zebraLevel: 1, falseColor: false) : nil) ?? frame
+            let sc: CGImage?
+            switch kind {
+            case .none: sc = nil
+            case .waveform: sc = p.waveform(base)
+            case .parade: sc = p.parade(base)
+            case .histogram: sc = p.histogram(base)
+            case .vector: sc = p.vectorscope(base)
+            }
             await MainActor.run { processed = out; scope = sc }
         }
     }
 
     struct ImageLayout {
-        var rect: CGRect          // where the (cropped) picture is drawn
-        var fullSize: CGSize      // size of the whole frame at display scale
-        var fullOffsetY: CGFloat  // vertical shift of the whole frame so the crop is centred in rect
-        var cropY: CGFloat        // top of crop as a fraction of full frame height (0…1)
-        var cropHeight: CGFloat   // crop height as a fraction of full frame height (0…1)
+        var rect: CGRect
+        var fullSize: CGSize
+        var cropX: CGFloat, cropY: CGFloat, cropWidth: CGFloat, cropHeight: CGFloat   // fractions of the full frame
     }
 
-    /// Aspect-fits the frame (or its cinema crop) into the available size.
+    /// Native aspect of the picture as displayed (after rotation).
+    private var displayedNativeAspect: CGFloat {
+        let w = session.frameSize.width, h = session.frameSize.height
+        guard w > 0, h > 0 else { return 3.0 / 2.0 }
+        return overlays.rotation == 0 ? w / h : h / w
+    }
+
+    /// Aspect-fits the frame (or its crop: wide cinema ratios trim top/bottom, vertical social ratios trim the
+    /// sides, and 2× magnification trims both) into the available size.
     private func imageLayout(in size: CGSize) -> ImageLayout {
-        let native = session.frameSize.width > 0 ? session.frameSize.width / session.frameSize.height : 3.0 / 2.0
-        var cropFrac: CGFloat = 1
+        let native = displayedNativeAspect
         var aspect = native
-        if let target = overlays.crop.value, CGFloat(target) > native {
-            aspect = CGFloat(target)
-            cropFrac = native / aspect         // portion of the frame height that survives the crop
+        var cropH: CGFloat = 1, cropW: CGFloat = 1
+        if let t = overlays.crop.value {
+            let target = CGFloat(t)
+            if target > native { aspect = target; cropH = native / target }        // letterbox crop
+            else if target < native { aspect = target; cropW = target / native }   // pillar crop (vertical formats)
         }
+        let zoom: CGFloat = overlays.magnify ? 2 : 1
         var w = size.width, h = w / aspect
         if h > size.height { h = size.height; w = h * aspect }
         let rect = CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h)
-        let fullH = h / cropFrac
-        return ImageLayout(rect: rect, fullSize: CGSize(width: w, height: fullH), fullOffsetY: 0,
-                           cropY: (1 - cropFrac) / 2, cropHeight: cropFrac)
+        let fullW = w / cropW * zoom, fullH = h / cropH * zoom
+        let cw = cropW / zoom, ch = cropH / zoom
+        return ImageLayout(rect: rect, fullSize: CGSize(width: fullW, height: fullH),
+                           cropX: (1 - cw) / 2, cropY: (1 - ch) / 2, cropWidth: cw, cropHeight: ch)
     }
 
     private func flashAF() { afFlash = true; DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { afFlash = false } }
 
-    @ViewBuilder private func afMarker(in rect: CGRect) -> some View {
+    @ViewBuilder private func afMarker(in rect: CGRect, layout: ImageLayout) -> some View {
         if let p = session.state.touchAFPoint, session.state.touchAFSet {
-            let color: Color = session.state.focusStatus == "Focused" ? Theme.focusOK : (session.state.focusStatus == "Failed" ? Theme.rec : Theme.amber)
-            let cropFrac = overlays.crop.value.map { max(1, CGFloat($0) / (session.frameSize.width > 0 ? session.frameSize.width / session.frameSize.height : 1.5)) } ?? 1
-            let fullH = rect.height * cropFrac
-            let top = rect.midY - fullH / 2
+            let color: Color = session.state.focusStatus == "Focused" ? Theme.ok : (session.state.focusStatus == "Failed" ? Theme.rec : Theme.accent)
+            let fx = (CGFloat(p.x) / 100 - layout.cropX) / layout.cropWidth
+            let fy = (CGFloat(p.y) / 100 - layout.cropY) / layout.cropHeight
             RoundedRectangle(cornerRadius: 2).stroke(color, lineWidth: 1.5)
                 .frame(width: rect.width * 0.09, height: rect.width * 0.09)
-                .position(x: rect.minX + rect.width * p.x / 100, y: top + fullH * p.y / 100)
-                .clipShape(Rectangle().path(in: rect))
+                .position(x: rect.minX + rect.width * fx, y: rect.minY + rect.height * fy)
                 .scaleEffect(afFlash ? 1.25 : 1).animation(.easeOut(duration: 0.25), value: afFlash)
+                .clipShape(Rectangle().path(in: rect))
         }
     }
 }
 
-/// Grid, frame guides, center marker, drawn over the fitted image rect.
+/// Scope inset drawn over the picture, translucent like a viewfinder overlay.
+struct ScopeInset: View {
+    let kind: ScopeKind
+    let image: CGImage
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Image(decorative: image, scale: 1).resizable().interpolation(.none)
+                .frame(width: CGFloat(image.width), height: CGFloat(image.height))
+                .opacity(0.9)
+            HStack {
+                Text(kind.title.uppercased()).font(Theme.label(8)).tracking(1.4)
+                Spacer()
+                if kind == .waveform || kind == .parade { Text("0 – 100 IRE").font(Theme.label(8)) }
+            }
+            .foregroundStyle(Theme.dim).frame(width: CGFloat(image.width))
+        }
+        .padding(5)
+        .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
+        .allowsHitTesting(false)
+    }
+}
+
+/// Frame lines in the viewfinder idiom: red action-safe rectangle with edge ticks, thirds, centre cross.
 struct FrameOverlays: View {
     @Environment(OverlaySettings.self) private var overlays
     let rect: CGRect
@@ -143,22 +199,21 @@ struct FrameOverlays: View {
         Canvas { ctx, _ in
             let thin = StrokeStyle(lineWidth: 1)
             if overlays.grid {
-                // Frame lines: thirds plus corner brackets on the action-safe area (93%).
-                var p = Path()
+                let safe = rect.insetBy(dx: rect.width * 0.04, dy: rect.height * 0.04)
+                ctx.stroke(Path(safe), with: .color(Theme.rec.opacity(0.9)), style: thin)
+                var ticks = Path()
+                let t: CGFloat = 10
+                for (x, y, dx, dy) in [(safe.midX, safe.minY, 0.0, 1.0), (safe.midX, safe.maxY, 0.0, -1.0), (safe.minX, safe.midY, 1.0, 0.0), (safe.maxX, safe.midY, -1.0, 0.0)] {
+                    ticks.move(to: CGPoint(x: x, y: y)); ticks.addLine(to: CGPoint(x: x + dx * t, y: y + dy * t))
+                }
+                ctx.stroke(ticks, with: .color(Theme.rec), style: StrokeStyle(lineWidth: 2))
+                var thirds = Path()
                 for i in 1 ..< 3 {
-                    let x = rect.minX + rect.width * CGFloat(i) / 3, y = rect.minY + rect.height * CGFloat(i) / 3
-                    p.move(to: CGPoint(x: x, y: rect.minY)); p.addLine(to: CGPoint(x: x, y: rect.maxY))
-                    p.move(to: CGPoint(x: rect.minX, y: y)); p.addLine(to: CGPoint(x: rect.maxX, y: y))
+                    let x = safe.minX + safe.width * CGFloat(i) / 3, y = safe.minY + safe.height * CGFloat(i) / 3
+                    thirds.move(to: CGPoint(x: x, y: safe.minY)); thirds.addLine(to: CGPoint(x: x, y: safe.maxY))
+                    thirds.move(to: CGPoint(x: safe.minX, y: y)); thirds.addLine(to: CGPoint(x: safe.maxX, y: y))
                 }
-                ctx.stroke(p, with: .color(.white.opacity(0.22)), style: thin)
-                let safe = rect.insetBy(dx: rect.width * 0.035, dy: rect.height * 0.035)
-                let L: CGFloat = min(28, rect.width * 0.03)
-                var b = Path()
-                for (x, y, dx, dy) in [(safe.minX, safe.minY, 1.0, 1.0), (safe.maxX, safe.minY, -1.0, 1.0),
-                                       (safe.minX, safe.maxY, 1.0, -1.0), (safe.maxX, safe.maxY, -1.0, -1.0)] {
-                    b.move(to: CGPoint(x: x + dx * L, y: y)); b.addLine(to: CGPoint(x: x, y: y)); b.addLine(to: CGPoint(x: x, y: y + dy * L))
-                }
-                ctx.stroke(b, with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5))
+                ctx.stroke(thirds, with: .color(.white.opacity(0.16)), style: thin)
             }
             if overlays.frameGuides {
                 let h = rect.width / 2.39
@@ -167,8 +222,8 @@ struct FrameOverlays: View {
                 p.move(to: CGPoint(x: rect.minX, y: top)); p.addLine(to: CGPoint(x: rect.maxX, y: top))
                 p.move(to: CGPoint(x: rect.minX, y: bottom)); p.addLine(to: CGPoint(x: rect.maxX, y: bottom))
                 ctx.stroke(p, with: .color(.white.opacity(0.7)), style: thin)
-                ctx.fill(Path(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, top - rect.minY))), with: .color(.black.opacity(0.45)))
-                ctx.fill(Path(CGRect(x: rect.minX, y: bottom, width: rect.width, height: max(0, rect.maxY - bottom))), with: .color(.black.opacity(0.45)))
+                ctx.fill(Path(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, top - rect.minY))), with: .color(.black.opacity(0.5)))
+                ctx.fill(Path(CGRect(x: rect.minX, y: bottom, width: rect.width, height: max(0, rect.maxY - bottom))), with: .color(.black.opacity(0.5)))
             }
             if overlays.centerMarker {
                 var p = Path()
@@ -177,7 +232,7 @@ struct FrameOverlays: View {
                 p.move(to: CGPoint(x: c.x + gap, y: c.y)); p.addLine(to: CGPoint(x: c.x + s, y: c.y))
                 p.move(to: CGPoint(x: c.x, y: c.y - s)); p.addLine(to: CGPoint(x: c.x, y: c.y - gap))
                 p.move(to: CGPoint(x: c.x, y: c.y + gap)); p.addLine(to: CGPoint(x: c.x, y: c.y + s))
-                ctx.stroke(p, with: .color(.white.opacity(0.8)), style: thin)
+                ctx.stroke(p, with: .color(.white.opacity(0.85)), style: thin)
             }
         }
         .allowsHitTesting(false)

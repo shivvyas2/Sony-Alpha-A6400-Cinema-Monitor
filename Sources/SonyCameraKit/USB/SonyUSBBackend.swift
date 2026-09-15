@@ -151,6 +151,9 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
             default: s.focusStatus = "Not Focusing"
             }
         }
+        if let d = p[SonyProp.zoom], d.current > 0 { s.focalLengthMM = Double(d.current) / 1_000_000 }
+        if let d = p[SonyProp.ccFilter] { s.ccShift = Int(d.current) - 192 }
+        if let d = p[SonyProp.abFilter] { s.abShift = Int(d.current) - 192 }
         if let d = p[SonyProp.batteryLevel] {
             s.battery = BatteryInfo(status: "Active", additionalStatus: "", levelNumer: Int(d.current), levelDenom: 100)
         }
@@ -332,6 +335,42 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
         try await setValue(SonyProp.exposureProgramMode, target: val)
     }
     public func setShootMode(_ v: String) async throws { throw UnsupportedOperation("Shoot mode (use the mode dial)") }
+
+    // MARK: Generic settings menu
+
+    public func settings() async -> [CameraSetting] {
+        SonyTables.menu.compactMap { e in
+            guard let d = prop(e.code) else { return nil }
+            let list = d.enumValues.isEmpty ? d.enumAllValues : d.enumValues
+            return CameraSetting(id: String(format: "0x%04X", e.code), name: e.name, group: e.group,
+                                 current: SonyTables.name(d.current, in: e.values),
+                                 candidates: list.map { SonyTables.name($0, in: e.values) },
+                                 settable: d.isEnabled == 1 || (d.isEnabled == 2 && e.code == 0x500B))
+        }
+    }
+
+    public func setSetting(id: String, value: String) async throws {
+        guard let code = UInt16(id.dropFirst(2), radix: 16), let e = SonyTables.menu.first(where: { $0.code == code }),
+              let d = prop(code) else { throw UnsupportedOperation(id) }
+        let list = d.enumValues.isEmpty ? d.enumAllValues : d.enumValues
+        guard let target = list.first(where: { SonyTables.name($0, in: e.values) == value }) else { throw UnsupportedOperation("\(e.name) \(value)") }
+        try await setValue(code, target: target)
+    }
+
+    public func focusDrive(steps: Int) async throws {
+        guard prop(SonyProp.nearFar) != nil else { throw UnsupportedOperation("Focus drive") }
+        try await controlB(SonyProp.nearFar, Int64(max(-7, min(7, steps))), type: .int16)
+    }
+
+    public func press(_ button: CameraButton) async throws {
+        let code: UInt16
+        switch button {
+        case .aeLock: code = SonyProp.aelButton
+        case .feLock: code = SonyProp.felButton
+        case .oneShot: code = SonyProp.oneShotButton
+        }
+        try await press(code, holdMillis: 150)
+    }
 
     // MARK: Buttons
 

@@ -62,6 +62,11 @@ public struct CameraState: Sendable, Equatable {
     public var numberOfShots: Int = 0
     public var zoomPosition: Int?
     public var lastPictureURLs: [String] = []
+    /// Lens focal length in mm when the camera reports it (USB).
+    public var focalLengthMM: Double?
+    /// White balance colour compensation (green ↔ magenta) and amber ↔ blue shifts, in camera steps.
+    public var ccShift: Int?
+    public var abShift: Int?
 
     public var isRecording: Bool { cameraStatus == "MovieRecording" }
     public var shotsRemaining: Int? { storage.first(where: { $0.recordTarget })?.numberOfRecordableImages ?? storage.first?.numberOfRecordableImages }
@@ -80,6 +85,7 @@ public struct CameraState: Sendable, Equatable {
         && a.touchAFPoint?.x == b.touchAFPoint?.x && a.touchAFPoint?.y == b.touchAFPoint?.y
         && a.battery == b.battery && a.storage == b.storage && a.recordingTimeSeconds == b.recordingTimeSeconds
         && a.numberOfShots == b.numberOfShots && a.zoomPosition == b.zoomPosition
+        && a.focalLengthMM == b.focalLengthMM && a.ccShift == b.ccShift && a.abShift == b.abShift
         && a.shutterSpeedCandidates == b.shutterSpeedCandidates && a.fNumberCandidates == b.fNumberCandidates
         && a.isoCandidates == b.isoCandidates && a.focusModeCandidates == b.focusModeCandidates
         && a.whiteBalanceCandidates == b.whiteBalanceCandidates && a.lastPictureURLs == b.lastPictureURLs
