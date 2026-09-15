@@ -331,6 +331,10 @@ public final class CameraSession {
         case "setSetting": if let id = cmd.value, let v = cmd.value2 { await setSetting(id, v) }
         case "focusDrive": if let n = cmd.index { await focusDrive(n) }
         case "press": if let v = cmd.value, let b = CameraButton(rawValue: v) { await press(b) }
+        case "zoom": if let d = cmd.value.flatMap(ZoomDirection.init(rawValue:)), let m = cmd.value2.flatMap(ZoomMovement.init(rawValue:)) { await zoom(d, m) }
+        case "setStillSize": if let a = cmd.value, let z = cmd.value2 { await setStillSize(StillSize(aspect: a, size: z)) }
+        case "setMovieQuality": if let v = cmd.value { await setMovieQuality(v) }
+        case "setMovieFileFormat": if let v = cmd.value { await setMovieFileFormat(v) }
         default: return BridgeReply(ok: false, error: "unknown op \(cmd.op)")
         }
         return BridgeReply(ok: lastError == nil, error: lastError)

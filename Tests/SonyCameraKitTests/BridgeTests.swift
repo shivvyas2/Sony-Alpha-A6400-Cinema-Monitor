@@ -2,6 +2,23 @@ import XCTest
 @testable import SonyCameraKit
 
 final class BridgeTests: XCTestCase {
+    func testBridgeStateCarriesFormatAndZoom() throws {
+        var st = CameraState()
+        st.stillSize = StillSize(aspect: "3:2", size: "L")
+        st.stillSizeCandidates = [StillSize(aspect: "3:2", size: "L"), StillSize(aspect: "16:9", size: "M")]
+        st.movieQuality = "PS"; st.movieQualityCandidates = ["PS", "HQ"]
+        st.movieFileFormat = "XAVC S"; st.movieFileFormatCandidates = ["MP4", "XAVC S"]
+        st.zoomPosition = 42
+        let b = BridgeState(state: st, settings: [], transport: .usb, cameraName: "a6400")
+        let data = try JSONEncoder().encode(b)
+        let back = try JSONDecoder().decode(BridgeState.self, from: data).cameraState
+        XCTAssertEqual(back.stillSize, st.stillSize)
+        XCTAssertEqual(back.stillSizeCandidates, st.stillSizeCandidates)
+        XCTAssertEqual(back.movieQuality, "PS"); XCTAssertEqual(back.movieQualityCandidates, ["PS", "HQ"])
+        XCTAssertEqual(back.movieFileFormat, "XAVC S"); XCTAssertEqual(back.movieFileFormatCandidates, ["MP4", "XAVC S"])
+        XCTAssertEqual(back.zoomPosition, 42)
+    }
+
     func testStateCommandAndStreamRoundTrip() async throws {
         let frames = Broadcaster<Data>()
         let states = Broadcaster<BridgeState>()

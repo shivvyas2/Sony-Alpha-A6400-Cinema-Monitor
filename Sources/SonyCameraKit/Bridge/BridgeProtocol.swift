@@ -43,6 +43,13 @@ public struct BridgeState: Codable, Sendable, Equatable {
     public var ccShift: Int?, abShift: Int?
     public var settings: [SettingEntry]
     public var focusDriveAvailable: Bool
+    public var stillAspect: String?, stillSizeName: String?
+    public var stillSizeCandidates: [String] = []        // "aspect|size"
+    public var movieQuality: String?
+    public var movieQualityCandidates: [String] = []
+    public var movieFileFormat: String?
+    public var movieFileFormatCandidates: [String] = []
+    public var zoomPosition: Int?
 
     public struct StorageEntry: Codable, Sendable, Equatable { public var images: Int?; public var minutes: Int?; public var description: String; public var target: Bool }
     public struct SettingEntry: Codable, Sendable, Equatable { public var id, name, group, current: String; public var candidates: [String]; public var settable: Bool }
@@ -66,6 +73,11 @@ public struct BridgeState: Codable, Sendable, Equatable {
         focalLengthMM = s.focalLengthMM; ccShift = s.ccShift; abShift = s.abShift
         self.settings = settings.map { SettingEntry(id: $0.id, name: $0.name, group: $0.group, current: $0.current, candidates: $0.candidates, settable: $0.settable) }
         focusDriveAvailable = transport == .usb
+        stillAspect = s.stillSize?.aspect; stillSizeName = s.stillSize?.size
+        stillSizeCandidates = s.stillSizeCandidates.map(\.id)
+        movieQuality = s.movieQuality; movieQualityCandidates = s.movieQualityCandidates
+        movieFileFormat = s.movieFileFormat; movieFileFormatCandidates = s.movieFileFormatCandidates
+        zoomPosition = s.zoomPosition
     }
 
     public var cameraState: CameraState {
@@ -86,6 +98,14 @@ public struct BridgeState: Codable, Sendable, Equatable {
         s.storage = storage.map { StorageInfo(numberOfRecordableImages: $0.images, recordableTimeMinutes: $0.minutes, description: $0.description, recordTarget: $0.target) }
         s.recordingTimeSeconds = recordingTimeSeconds; s.numberOfShots = numberOfShots
         s.focalLengthMM = focalLengthMM; s.ccShift = ccShift; s.abShift = abShift
+        if let a = stillAspect, let z = stillSizeName { s.stillSize = StillSize(aspect: a, size: z) }
+        s.stillSizeCandidates = stillSizeCandidates.compactMap { id in
+            let parts = id.split(separator: "|", maxSplits: 1).map(String.init)
+            return parts.count == 2 ? StillSize(aspect: parts[0], size: parts[1]) : nil
+        }
+        s.movieQuality = movieQuality; s.movieQualityCandidates = movieQualityCandidates
+        s.movieFileFormat = movieFileFormat; s.movieFileFormatCandidates = movieFileFormatCandidates
+        s.zoomPosition = zoomPosition
         return s
     }
 

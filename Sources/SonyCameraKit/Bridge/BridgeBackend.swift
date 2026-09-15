@@ -113,6 +113,10 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
     public func setSetting(id: String, value: String) async throws { try await send(.init(op: "setSetting", value: id, value2: value)) }
     public func focusDrive(steps: Int) async throws { try await send(.init(op: "focusDrive", index: steps)) }
     public func press(_ button: CameraButton) async throws { try await send(.init(op: "press", value: button.rawValue)) }
+    public func zoom(_ direction: ZoomDirection, _ movement: ZoomMovement) async throws { try await send(.init(op: "zoom", value: direction.rawValue, value2: movement.rawValue)) }
+    public func setStillSize(_ s: StillSize) async throws { try await send(.init(op: "setStillSize", value: s.aspect, value2: s.size)) }
+    public func setMovieQuality(_ v: String) async throws { try await send(.init(op: "setMovieQuality", value: v)) }
+    public func setMovieFileFormat(_ v: String) async throws { try await send(.init(op: "setMovieFileFormat", value: v)) }
 }
 
 /// Splits a multipart/x-mixed-replace stream into JPEG payloads using Content-Length headers.
