@@ -60,6 +60,26 @@ click Discover; allow it.
 | Hide the HUD | | H |
 | Full screen | View › Enter Full Screen | ⌃⌘F |
 
+### Photo mode
+
+Turn the mode dial to a still position and the app switches to **Photo mode** (Tab forces either mode
+until the dial moves). The display follows the camera body's own LCD: mode badge, shots remaining,
+RAW+J badge and battery across the top; focus mode and area on the left; shutter, aperture, EV and ISO
+along the bottom (click or scroll to change). Sony's focus dot sits bottom-left, green when focus is
+confirmed, and a small bar next to it shows how sharp the AF region is on the live view.
+
+**Every shot is transferred to the Mac as it is taken**, whether you press the shutter in the app or on
+the camera, and saved to `~/Pictures/CinemaHUD/<yyyy-MM-dd>/` under the camera's own filename. Over USB
+both the JPEG and the RAW (ARW) arrive; on the camera set *File Format* to RAW+JPEG and
+*Still Img. Save Dest.* to **PC** or **PC+Camera**. Over Wi-Fi Sony's remote API only sends the JPEG.
+
+The moment the JPEG lands it replaces the live view for **review**: the real full-resolution image
+with a 100 % loupe on the AF point and a focus verdict (IN FOCUS / SOFT / MISSED, with a marker where
+the image is actually sharpest). Click to move the loupe, scroll to zoom, drag to pan, R switches
+between JPEG and RAW once both are in, ← / → step through the shots, Escape returns to live view.
+Return or Space fire the shutter or AF and leave review too. Thumbnails of the session's shots sit
+along the bottom of the live view.
+
 ### The monitor
 
 The layout follows a cinema viewfinder. The top strip carries exposure: FPS (project), SHUTTER
@@ -165,6 +185,9 @@ Connect, live view, shutter / iris / ISO stepping (lands on the nearest value th
 offers), movie record start/stop with true recording state, battery. Touch AF is Wi-Fi only.
 Still capture and half-press AF over USB are implemented but were only exercised in movie mode,
 where the body ignores them; test them in a stills mode.
+
+Photo mode: RAW+JPEG transfer, body-triggered transfer, auto review and the focus verdict have been
+exercised against the simulator only; hardware verification pending.
 
 ## Building
 
