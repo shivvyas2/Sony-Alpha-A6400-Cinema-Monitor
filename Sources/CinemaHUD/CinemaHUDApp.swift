@@ -36,6 +36,9 @@ struct CinemaHUDApp: App {
                     .keyboardShortcut("r", modifiers: [])
                 Divider()
                 Button("Disconnect") { session.disconnect() }.keyboardShortcut("d", modifiers: [.command])
+                Divider()
+                Button(overlays.shootingMode == .photo ? "Switch to Video Mode" : "Switch to Photo Mode") { overlays.modeResolver.toggle() }
+                    .keyboardShortcut(.tab, modifiers: [])
             }
             CommandMenu("Aspect") {
                 ForEach(Array(CropRatio.allCases.enumerated()), id: \.element) { i, ratio in
@@ -198,6 +201,9 @@ final class OverlaySettings {
     var reel = 1
     /// Display rotation in degrees for a camera mounted sideways (vertical shooting).
     var rotation = 0
+    var modeResolver = ShootingModeResolver()
+    var shootingMode: ShootingMode { modeResolver.mode }
+    var reviewShowsRAW = false
 
     /// The LUT that should be applied to the feed right now, if any.
     var activeLUT: (data: Data, dimension: Int)? {
@@ -237,7 +243,7 @@ struct ContentView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if session.phase.isConnected {
-                MonitorView()
+                if overlays.shootingMode == .photo { PhotoView() } else { MonitorView() }
             } else {
                 ConnectView()
             }
@@ -246,6 +252,7 @@ struct ContentView: View {
             print(String(format: "report: display=%.1f fps source=%.1f fps motion=x%d nr=%.1f size=%.0fx%.0f", session.fps, session.sourceFPS, session.motionFactor, session.denoise, session.frameSize.width, session.frameSize.height))
             fflush(stdout)
         }
+        .onChange(of: session.state.shootMode, initial: true) { _, dial in overlays.modeResolver.dial(dial) }
         .task {
             // Dev convenience: CINEMAHUD_ADDRESS=127.0.0.1:8080 auto-connects (e.g. to tools/camerasim.py).
             DevHooks.apply(to: overlays)
@@ -269,6 +276,7 @@ struct ContentView: View {
                     case "iris": await session.setFNumber(kv[1])
                     case "iso": await session.setISO(kv[1])
                     case "ev": await session.setExposureCompensation(index: Int(kv[1]) ?? 0)
+                    case "shoot": await session.takePicture()
                     default: break
                     }
                     try? await Task.sleep(for: .milliseconds(600))
@@ -324,6 +332,7 @@ enum DevHooks {
             case "parade": overlays.scope = .parade
             case "hist": overlays.scope = .histogram
             case "vector": overlays.scope = .vector
+            case "photo": overlays.modeResolver.toggle()
             case "menu": overlays.showMenu = true
             case "magnify": overlays.magnify = true
             case "rot90": overlays.rotation = 90

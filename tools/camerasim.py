@@ -243,7 +243,9 @@ def ssdp_responder(port):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--port", type=int, default=8080); ap.add_argument("--fps", type=float, default=24); ap.add_argument("--no-ssdp", action="store_true")
+    ap.add_argument("--stills", action="store_true", help="start with the mode dial on a still position (photo mode)")
     a = ap.parse_args()
+    if a.stills: CAM.shoot_mode = "still"
     if not a.no_ssdp: threading.Thread(target=ssdp_responder, args=(a.port,), daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", a.port), Handler); srv.fps = a.fps; srv.daemon_threads = True
     print(f"camerasim: JSON-RPC at http://127.0.0.1:{a.port}/sony/camera, liveview /liveview, SSDP {'off' if a.no_ssdp else 'on'}")
