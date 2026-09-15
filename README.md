@@ -1,7 +1,9 @@
 # CinemaHUD
 
-A native macOS app that turns a Sony α6400 into a remote-monitored cinema camera: live view on
-your Mac with a cinema-style HUD for shutter, iris, ISO, white balance, EV and focus, plus
+![CinemaHUD on a MacBook Pro, iPhone and iPad: the cinema viewfinder with live exposure and status strips](docs/images/cinemahud-hero.jpg)
+
+A native macOS, iPhone and iPad app that turns a Sony α6400 into a remote-monitored cinema camera: live view
+with a cinema-style HUD for shutter, iris, ISO, white balance, EV and focus, plus
 click-to-focus, still capture, movie record, focus peaking, zebras, framing guides and cinema
 aspect crops that fill an ultrawide monitor.
 
