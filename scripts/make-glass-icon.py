@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""CinemaHUD app icon: black liquid-glass tile, glass "CHM" monogram with a red REC bead,
-"CINEMA HUD MONITOR" along the bottom. Rendered at 2x and downsampled for clean edges.
+"""CinemaHUD app icon: black liquid-glass tile, glass viewfinder brackets with a red REC bead,
+small condensed-bold "CHM" in pure white along the bottom. Rendered at 2x and downsampled for clean edges.
 
 Outputs (in <outdir>, default design/icon):
   AppIcon-iOS-1024.png     opaque square, full bleed (App Store / iOS asset catalog)
@@ -90,30 +90,27 @@ band = Image.new("RGBA", (S, S), (0, 0, 0, 0)); bd = ImageDraw.Draw(band)
 bd.polygon([(0, S * 0.05), (S, -S * 0.25), (S, S * 0.02), (0, S * 0.32)], fill=(255, 255, 255, 18))
 bg = Image.alpha_composite(bg, band.filter(ImageFilter.GaussianBlur(30 * SS)))
 
-# ---------- monogram: CHM in glass ----------
+# ---------- mark: glass viewfinder brackets with the red REC bead ----------
 mark = Image.new("L", (S, S), 0); md = ImageDraw.Draw(mark)
-f_big = font(int(330 * SS), "Heavy")
-text = "CHM"
-tw = md.textlength(text, font=f_big)
-tx, ty = (S - tw) / 2 - 22 * SS, S * 0.30
-md.text((tx, ty), text, font=f_big, fill=255)
-glass_layer, glass_shadow = glass(bg, mark, body_alpha=(150, 80), refract=8 * SS, blur=10 * SS)
-bead_c = (tx + tw + 40 * SS, ty + 330 * SS * 0.62 + 40 * SS)      # sits after the M like a period, baseline-aligned
-bead = sphere(bead_c, 34 * SS)
+w, L = 44 * SS, 150 * SS
+ax, ay, bx, by = 262 * SS, 232 * SS, S - 262 * SS, 232 * SS + 360 * SS
+for (x, y, dx, dy) in [(ax, ay, 1, 1), (bx, ay, -1, 1), (ax, by, 1, -1), (bx, by, -1, -1)]:
+    md.rounded_rectangle([min(x, x + dx * L), y - w / 2, max(x, x + dx * L), y + w / 2], radius=w / 2, fill=255)
+    md.rounded_rectangle([x - w / 2, min(y, y + dy * L), x + w / 2, max(y, y + dy * L)], radius=w / 2, fill=255)
+glass_layer, glass_shadow = glass(bg, mark, body_alpha=(170, 90), refract=8 * SS, blur=10 * SS)
+bead = sphere((S / 2, (ay + by) / 2), 50 * SS)
 
-# ---------- wordmark along the bottom ----------
+# ---------- wordmark: small condensed bold "CHM", pure white, along the bottom ----------
 word = Image.new("RGBA", (S, S), (0, 0, 0, 0)); wd = ImageDraw.Draw(word)
-f_small = font(int(60 * SS), "Semibold")
-label = "CINEMA HUD MONITOR"
-# letter-spaced
-spacing = 8 * SS
+f_small = font(int(92 * SS), "Condensed Bold")
+label = "CHM"
+spacing = 6 * SS
 total = sum(wd.textlength(ch, font=f_small) for ch in label) + spacing * (len(label) - 1)
-x = (S - total) / 2; y = S * 0.735
+x = (S - total) / 2; y = S * 0.745
 for ch in label:
-    wd.text((x, y), ch, font=f_small, fill=(235, 235, 240, 255))
+    wd.text((x, y), ch, font=f_small, fill=(255, 255, 255, 255))
     x += wd.textlength(ch, font=f_small) + spacing
-word_glow = word.filter(ImageFilter.GaussianBlur(6 * SS))
-word_layer = Image.alpha_composite(word_glow.point(lambda v: v), word)
+word_layer = word
 
 # ---------- compose ----------
 full = Image.alpha_composite(bg, glass_shadow)
