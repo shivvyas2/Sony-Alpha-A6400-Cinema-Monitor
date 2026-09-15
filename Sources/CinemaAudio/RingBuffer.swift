@@ -39,12 +39,13 @@ public final class RingBuffer {
     }
 
     /// The most recent `lastSeconds` of audio (clamped to what is stored), oldest frame first.
+    /// The output buffer is allocated before the lock is taken so the audio-thread writer never waits on an allocation.
     public func read(lastSeconds: Double) -> AVAudioPCMBuffer {
+        let requested = max(0, Int(lastSeconds * format.sampleRate))
+        let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(max(1, min(capacity, requested))))!
         lock.lock(); defer { lock.unlock() }
-        let want = min(filled, max(0, Int(lastSeconds * format.sampleRate)))
-        let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(max(1, want)))!
+        let want = min(filled, min(capacity, requested))
         out.frameLength = AVAudioFrameCount(want)
-
         guard want > 0, let dst = out.floatChannelData else { return out }
         let start = (head - want + capacity) % capacity
         let first = min(want, capacity - start)
