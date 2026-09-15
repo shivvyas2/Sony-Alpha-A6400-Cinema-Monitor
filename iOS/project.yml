@@ -22,8 +22,8 @@ targets:
       path: CinemaHUDMobile/Info.plist
       properties:
         CFBundleDisplayName: CinemaHUD
-        CFBundleShortVersionString: "1.1.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "2.0.0"
+        CFBundleVersion: "3"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortrait]
