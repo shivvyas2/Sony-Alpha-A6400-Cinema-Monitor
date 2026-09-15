@@ -10,6 +10,12 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
     private let propsLock = NSLock()
     private var props: [UInt16: SonyPropDesc] = [:]
     private var recording = false
+    // Capture transfer. The state loop watches 0xD215 on every poll, so shots fired on the body transfer too.
+    private let captureLock = NSLock()
+    private var shotCounter = 0
+    private var draining = false
+    private var lastEmptyDrainValue: Int64?
+    private var awaitingShot: Task<Void, Never>?
     public var saveDirectory: URL
     let captures = CaptureBroadcaster()
     public func captureEvents() -> AsyncStream<CaptureEvent> { captures.stream() }
@@ -175,6 +181,7 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
                 while !Task.isCancelled {
                     do {
                         var s = try await refreshState()
+                        checkForCapturedObjects()
                         if s.isRecording { if recStart == nil { recStart = Date() }; s.recordingTimeSeconds = Int(Date().timeIntervalSince(recStart!)) }
                         else { recStart = nil }
                         if s != last { last = s; cont.yield(s) }
@@ -409,27 +416,79 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
         try await Task.sleep(for: .milliseconds(80))
         try await controlB(SonyProp.captureButton, 1, type: .uint16)
         try await controlB(SonyProp.autoFocusButton, 1, type: .uint16)
-        Task { await self.downloadCapturedImages() }
+        // The watcher picks the files up; if nothing shows up the camera is not saving to the PC.
+        let captures = self.captures
+        captureLock.withLock {
+            awaitingShot?.cancel()
+            awaitingShot = Task {
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled else { return }
+                captures.send(.failed(shotIndex: -1, message: "No file received. On the camera set Still Img. Save Dest. to PC or PC+Camera."))
+            }
+        }
     }
 
-    /// When the camera is set to save stills to the PC, they wait in memory until fetched.
-    private func downloadCapturedImages() async {
+    /// 0xD215 reads 0x8000 + n while n captured objects wait behind handle 0xFFFFC001; below 0x8000 = nothing.
+    static func pendingCount(_ raw: Int64?) -> Int {
+        guard let v = raw, v >= 0x8000 else { return 0 }
+        return max(1, Int(v - 0x8000))
+    }
+
+    private func pendingObjectCount() async throws -> Int {
+        try await refreshState()
+        return Self.pendingCount(prop(SonyProp.objectInMemory)?.current)
+    }
+
+    /// Called on every state poll. Any queued object, whoever pressed the shutter, starts a drain.
+    private func checkForCapturedObjects() {
+        let raw = prop(SonyProp.objectInMemory)?.current
+        guard Self.pendingCount(raw) > 0 else { return }
+        let shot: Int? = captureLock.withLock {
+            guard !draining, raw != lastEmptyDrainValue else { return nil }
+            draining = true
+            shotCounter += 1
+            awaitingShot?.cancel(); awaitingShot = nil
+            return shotCounter
+        }
+        guard let shot else { return }
+        Task {
+            await self.downloadCapturedImages(shot: shot, raw: raw)
+            self.captureLock.withLock { self.draining = false }
+        }
+    }
+
+    /// When the camera is set to save stills to the PC (Still Img. Save Dest. = PC / PC+Camera), the JPEG and
+    /// the RAW wait in memory until fetched. Each one is written to disk and announced as it lands.
+    private func downloadCapturedImages(shot: Int, raw: Int64?) async {
         guard let dev = device else { return }
-        for _ in 0 ..< 60 {
-            try? await Task.sleep(for: .milliseconds(200))
-            try? await refreshState()
-            guard let flag = prop(SonyProp.objectInMemory)?.current, flag >= 0x8000 else { continue }
-            guard let info = try? await dev.transaction(PTP.Op.getObjectInfo, params: [SonyProp.capturedImageHandle]),
-                  let obj = try? await dev.transaction(PTP.Op.getObject, params: [SonyProp.capturedImageHandle], timeout: 30) else { return }
-            var rd = PTPReader(info.data)
-            // ObjectInfo: StorageID u32, ObjectFormat u16, ProtectionStatus u16, ObjectCompressedSize u32, ... filename string at a known position
-            let filename: String = {
-                guard (try? rd.skip(52)) != nil, let name = try? rd.string(), !name.isEmpty else { return "capture-\(Int(Date().timeIntervalSince1970)).jpg" }
-                return name
-            }()
-            try? FileManager.default.createDirectory(at: saveDirectory, withIntermediateDirectories: true)
-            try? obj.data.write(to: saveDirectory.appendingPathComponent(filename))
-            return
+        let downloader = CaptureDownloader(
+            pending: { [weak self] in try await self?.pendingObjectCount() ?? 0 },
+            fetchNext: {
+                do {
+                    let info = try await dev.transaction(PTP.Op.getObjectInfo, params: [SonyProp.capturedImageHandle])
+                    let obj = try await dev.transaction(PTP.Op.getObject, params: [SonyProp.capturedImageHandle], timeout: 60)
+                    return (info.data, obj.data)
+                } catch let e as PTPError where e.code == PTP.Response.invalidObjectHandle || e.code == PTP.Response.accessDenied {
+                    throw CaptureDownloader.QueueEmpty()
+                }
+            },
+            timeout: .seconds(2))
+        do {
+            let objects = try await downloader.run()
+            guard !objects.isEmpty else {
+                // Stale flag: do not hammer the camera until the value changes.
+                captureLock.withLock { lastEmptyDrainValue = raw }
+                return
+            }
+            let now = Date()
+            for o in objects {
+                let url = try CaptureStore.write(o.data, base: saveDirectory, filename: o.filename, date: now)
+                captures.send(.image(CapturedImage(url: url, kind: CapturedImage.kind(objectFormat: o.format, filename: o.filename),
+                                                   filename: o.filename, takenAt: now, shotIndex: shot)))
+            }
+            captures.send(.finished(shotIndex: shot))
+        } catch {
+            captures.send(.failed(shotIndex: shot, message: (error as? LocalizedError)?.errorDescription ?? "\(error)"))
         }
     }
 
