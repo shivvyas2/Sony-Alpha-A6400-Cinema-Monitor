@@ -32,6 +32,7 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
             throw USBTransportError("Camera not found on USB. Set the camera's USB Connection to “PC Remote” and reconnect the cable.")
         }
         let transport = try PTPUSBTransport(service: entry.service, name: usbDevice.name)
+        transport.drain()
         let dev = PTPDevice(transport: transport)
         device = dev
         try await dev.openSession()

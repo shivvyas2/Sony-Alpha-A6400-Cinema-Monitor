@@ -97,6 +97,14 @@ final class PTPUSBTransport: @unchecked Sendable {
         return Data(bytes: buf.bytes, count: n)
     }
 
+    /// Discards any bytes left over from an interrupted transaction (e.g. a previous process died mid-read).
+    func drain() {
+        clearStall()
+        for _ in 0 ..< 8 {
+            guard let d = try? read(max: 1 << 20, timeout: 0.15), !d.isEmpty else { break }
+        }
+    }
+
     func clearStall() {
         try? bulkIn.clearStall()
         try? bulkOut.clearStall()
