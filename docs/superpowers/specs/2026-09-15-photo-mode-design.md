@@ -70,8 +70,8 @@ Drawn over the picture in white, Sony-like type, translucent dark bands only beh
 and bottom rows so text stays legible. Reference: the Sony body LCD in stills mode.
 
 - **Top row:** mode badge (P / A / S / M / AUTO from `exposureMode`), shots remaining (from
-  `shotsRemaining`), file format badge (RAW+J / RAW / JPEG, from the camera's `imageSize`/
-  file-format settings when readable, else last known), transport, battery percent.
+  `shotsRemaining`), file format badge (RAW+J / RAW / JPEG, derived from which files the last shot
+  delivered; shown as `--` until the first shot), transport, battery percent.
 - **Left column:** focus mode (AF-S / AF-C / MF / DMF), focus area label (SPOT when a
   click-to-AF point is set, WIDE otherwise), drive mode if known.
 - **Right column:** white balance, DRO/picture profile label.
@@ -118,8 +118,8 @@ func capturedImages() -> AsyncStream<CapturedImage>
   shots do not race for the handle.
 - Download loop: poll `0xD215` every 200 ms for up to 15 s. While its value is `>= 0x8001`,
   `GetObjectInfo` + `GetObject` on `0xFFFFC001`, write the file with the camera's filename into
-  `Pictures/CinemaHUD/<yyyy-MM-dd>/`, yield a `CapturedImage` (kind from the extension /
-  ObjectFormat: `0xB101`-ish RAW vs `0x3801` JPEG), and re-read `0xD215`. Stop when it drops
+  `Pictures/CinemaHUD/<yyyy-MM-dd>/`, yield a `CapturedImage` (kind from the ObjectInfo ObjectFormat:
+  `0x3801` = JPEG, anything else = RAW; the `.ARW` extension is the fallback check), and re-read `0xD215`. Stop when it drops
   below `0x8001`. A 24 MP ARW is ~24 MB and takes 1–3 s over USB 2; the JPEG arrives first
   and is shown immediately, the RAW is attached to the same shot when it lands.
 - If `0xD215` never rises, the session gets a one-line hint: "No file received. Set Still Img.
