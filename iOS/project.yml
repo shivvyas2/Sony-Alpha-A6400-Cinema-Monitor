@@ -1,6 +1,6 @@
 name: CinemaHUDMobile
 options:
-  bundleIdPrefix: ai.lunacommunity
+  bundleIdPrefix: com.shivvyas
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -41,7 +41,7 @@ targets:
       base:
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.9"
-        PRODUCT_BUNDLE_IDENTIFIER: ai.lunacommunity.cinemahud.mobile
+        PRODUCT_BUNDLE_IDENTIFIER: com.shivvyas.cinemahud.mobile
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: false
         SUPPORTS_MACCATALYST: false

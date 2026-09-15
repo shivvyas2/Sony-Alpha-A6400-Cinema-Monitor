@@ -4,7 +4,7 @@
 <dict>
     <key>CFBundleName</key><string>CinemaHUD</string>
     <key>CFBundleDisplayName</key><string>CinemaHUD</string>
-    <key>CFBundleIdentifier</key><string>ai.lunacommunity.cinemahud</string>
+    <key>CFBundleIdentifier</key><string>com.shivvyas.cinemahud</string>
     <key>CFBundleVersion</key><string>2</string>
     <key>CFBundleShortVersionString</key><string>1.1.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>

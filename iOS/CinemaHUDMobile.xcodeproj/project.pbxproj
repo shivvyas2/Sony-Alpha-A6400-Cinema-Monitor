@@ -228,7 +228,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = ai.lunacommunity.cinemahud.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shivvyas.cinemahud.mobile;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.9;
@@ -305,7 +305,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = ai.lunacommunity.cinemahud.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shivvyas.cinemahud.mobile;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.9;
