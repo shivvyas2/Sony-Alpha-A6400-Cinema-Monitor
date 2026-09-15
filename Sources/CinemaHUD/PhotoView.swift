@@ -106,9 +106,3 @@ final class LiveSharpnessMeter {
         }
     }
 }
-
-// Replaced by Task 8 (ReviewView.swift).
-struct ReviewView: View {
-    let shot: CapturedShot
-    var body: some View { Text(shot.primary?.filename ?? "").foregroundStyle(.white) }
-}

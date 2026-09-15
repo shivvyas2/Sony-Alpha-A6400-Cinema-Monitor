@@ -32,13 +32,20 @@ struct CinemaHUDApp: App {
             CommandMenu("Camera") {
                 Button("Autofocus") { Task { await session.autofocus() } }.keyboardShortcut(.space, modifiers: [])
                 Button("Take Picture") { Task { await session.takePicture() } }.keyboardShortcut(.return, modifiers: [])
-                Button(session.state.isRecording ? "Stop Recording" : "Start Recording") { Task { await session.toggleRecording() } }
-                    .keyboardShortcut("r", modifiers: [])
+                Button(session.reviewShot != nil && overlays.shootingMode == .photo ? "Toggle RAW / JPEG" : (session.state.isRecording ? "Stop Recording" : "Start Recording")) {
+                    if session.reviewShot != nil && overlays.shootingMode == .photo { overlays.reviewShowsRAW.toggle() }
+                    else { Task { await session.toggleRecording() } }
+                }
+                .keyboardShortcut("r", modifiers: [])
                 Divider()
                 Button("Disconnect") { session.disconnect() }.keyboardShortcut("d", modifiers: [.command])
                 Divider()
                 Button(overlays.shootingMode == .photo ? "Switch to Video Mode" : "Switch to Photo Mode") { overlays.modeResolver.toggle() }
                     .keyboardShortcut(.tab, modifiers: [])
+                Button("Leave Review") { session.review(nil) }.keyboardShortcut(.escape, modifiers: []).disabled(session.reviewShot == nil)
+                Button("Previous Shot") { if session.reviewShot == nil, let last = session.captures.last { session.review(last) } else { session.reviewNeighbor(-1) } }
+                    .keyboardShortcut(.leftArrow, modifiers: []).disabled(session.captures.isEmpty)
+                Button("Next Shot") { session.reviewNeighbor(1) }.keyboardShortcut(.rightArrow, modifiers: []).disabled(session.reviewShot == nil)
             }
             CommandMenu("Aspect") {
                 ForEach(Array(CropRatio.allCases.enumerated()), id: \.element) { i, ratio in
