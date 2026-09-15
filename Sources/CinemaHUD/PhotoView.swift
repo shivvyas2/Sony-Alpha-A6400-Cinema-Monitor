@@ -107,13 +107,7 @@ final class LiveSharpnessMeter {
     }
 }
 
-// Replaced by Task 7 (PhotoHUD.swift) and Task 8 (ReviewView.swift).
-struct PhotoHUD: View {
-    let layout: PhotoView.ImageLayout
-    let liveSharpness: Double
-    let afFlash: Bool
-    var body: some View { EmptyView() }
-}
+// Replaced by Task 8 (ReviewView.swift).
 struct ReviewView: View {
     let shot: CapturedShot
     var body: some View { Text(shot.primary?.filename ?? "").foregroundStyle(.white) }
