@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""CinemaHUD app icon: black liquid-glass tile, glass viewfinder brackets with a red REC bead,
-small condensed-bold "CHM" in pure white along the bottom. Rendered at 2x and downsampled for clean edges.
+"""CinemaHUD app icon: black liquid-glass tile with a small condensed-bold "CHM" in pure white
+along the bottom. Nothing else. Rendered at 2x and downsampled for clean edges.
 
 Outputs (in <outdir>, default design/icon):
   AppIcon-iOS-1024.png     opaque square, full bleed (App Store / iOS asset catalog)
@@ -90,16 +90,6 @@ band = Image.new("RGBA", (S, S), (0, 0, 0, 0)); bd = ImageDraw.Draw(band)
 bd.polygon([(0, S * 0.05), (S, -S * 0.25), (S, S * 0.02), (0, S * 0.32)], fill=(255, 255, 255, 18))
 bg = Image.alpha_composite(bg, band.filter(ImageFilter.GaussianBlur(30 * SS)))
 
-# ---------- mark: glass viewfinder brackets with the red REC bead ----------
-mark = Image.new("L", (S, S), 0); md = ImageDraw.Draw(mark)
-w, L = 44 * SS, 150 * SS
-ax, ay, bx, by = 262 * SS, 232 * SS, S - 262 * SS, 232 * SS + 360 * SS
-for (x, y, dx, dy) in [(ax, ay, 1, 1), (bx, ay, -1, 1), (ax, by, 1, -1), (bx, by, -1, -1)]:
-    md.rounded_rectangle([min(x, x + dx * L), y - w / 2, max(x, x + dx * L), y + w / 2], radius=w / 2, fill=255)
-    md.rounded_rectangle([x - w / 2, min(y, y + dy * L), x + w / 2, max(y, y + dy * L)], radius=w / 2, fill=255)
-glass_layer, glass_shadow = glass(bg, mark, body_alpha=(170, 90), refract=8 * SS, blur=10 * SS)
-bead = sphere((S / 2, (ay + by) / 2), 50 * SS)
-
 # ---------- wordmark: small condensed bold "CHM", pure white, along the bottom ----------
 word = Image.new("RGBA", (S, S), (0, 0, 0, 0)); wd = ImageDraw.Draw(word)
 f_small = font(int(92 * SS), "Condensed Bold")
@@ -113,16 +103,13 @@ for ch in label:
 word_layer = word
 
 # ---------- compose ----------
-full = Image.alpha_composite(bg, glass_shadow)
-full = Image.alpha_composite(full, glass_layer)
-full = Image.alpha_composite(full, bead)
-full = Image.alpha_composite(full, word_layer)
+full = Image.alpha_composite(bg, word_layer)
 
 def down(img): return img.resize((1024, 1024), Image.LANCZOS)
 ios = down(full).convert("RGB"); ios.save(f"{OUT}/AppIcon-iOS-1024.png")
 mac = down(full).copy(); mac.putalpha(squircle_mask(1024)); mac.save(f"{OUT}/AppIcon-macOS-1024.png")
 down(bg).convert("RGB").save(f"{OUT}/layer-background.png")
-down(Image.alpha_composite(glass_shadow, glass_layer)).save(f"{OUT}/layer-glass.png")
-down(Image.alpha_composite(bead, word_layer)).save(f"{OUT}/layer-symbol.png")
+down(word_layer).save(f"{OUT}/layer-symbol.png")
+if os.path.exists(f"{OUT}/layer-glass.png"): os.remove(f"{OUT}/layer-glass.png")
 ios.resize((512, 512), Image.LANCZOS).save(f"{OUT}/preview.png")
 print("ok")
