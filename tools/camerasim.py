@@ -89,6 +89,8 @@ threading.Thread(target=rec_ticker, daemon=True).start()
 
 # ---------- frame rendering ----------
 FONT = None
+PHOTO = None   # PIL image served as the live view when --photo is given
+PHOTO_SIZED = {}
 for cand in ["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/SFNSMono.ttf", "/Library/Fonts/Arial.ttf"]:
     try: FONT = ImageFont.truetype(cand, 22); break
     except Exception: pass
@@ -102,24 +104,31 @@ def exposure_gain():
     return 2 ** (ev * 0.5)
 
 def render_frame(t, w=1024, h=680):
-    img = Image.new("RGB", (w, h))
-    d = ImageDraw.Draw(img)
     gain = exposure_gain()
-    warm = max(0, min(1, (CAM.color_temp - 2500) / 7400)) if CAM.wb_mode == "Color Temperature" else 0.45
-    for y in range(0, h, 4):
-        k = y / h
-        r = int(min(255, (40 + 120 * k) * gain * (0.8 + 0.4 * warm)))
-        g = int(min(255, (60 + 90 * k) * gain))
-        b = int(min(255, (110 + 60 * (1 - k)) * gain * (1.2 - 0.4 * warm)))
-        d.rectangle([0, y, w, y + 4], fill=(r, g, b))
-    # a bright "sun" that clips (for zebras) and a moving subject (for peaking)
-    sx, sy = w * 0.78, h * 0.22
-    d.ellipse([sx - 70, sy - 70, sx + 70, sy + 70], fill=(int(min(255, 250 * gain)),) * 3)
-    cx = w * 0.5 + math.sin(t * 0.8) * w * 0.25
-    cy = h * 0.6 + math.cos(t * 0.5) * h * 0.1
-    for i in range(6):
-        c = int(min(255, (90 + 25 * i) * gain))
-        d.rectangle([cx - 120 + i * 20, cy - 80 + i * 14, cx + 120 - i * 20, cy + 80 - i * 14], outline=(c, c, c), width=3)
+    if PHOTO is not None:
+        # A still photo as the live view (try one with a face to exercise Shot Assist); exposure gain still applies.
+        from PIL import ImageEnhance
+        if (w, h) not in PHOTO_SIZED: PHOTO_SIZED[(w, h)] = PHOTO.resize((w, h))
+        img = ImageEnhance.Brightness(PHOTO_SIZED[(w, h)]).enhance(gain)
+        d = ImageDraw.Draw(img)
+    else:
+        img = Image.new("RGB", (w, h))
+        d = ImageDraw.Draw(img)
+        warm = max(0, min(1, (CAM.color_temp - 2500) / 7400)) if CAM.wb_mode == "Color Temperature" else 0.45
+        for y in range(0, h, 4):
+            k = y / h
+            r = int(min(255, (40 + 120 * k) * gain * (0.8 + 0.4 * warm)))
+            g = int(min(255, (60 + 90 * k) * gain))
+            b = int(min(255, (110 + 60 * (1 - k)) * gain * (1.2 - 0.4 * warm)))
+            d.rectangle([0, y, w, y + 4], fill=(r, g, b))
+        # a bright "sun" that clips (for zebras) and a moving subject (for peaking)
+        sx, sy = w * 0.78, h * 0.22
+        d.ellipse([sx - 70, sy - 70, sx + 70, sy + 70], fill=(int(min(255, 250 * gain)),) * 3)
+        cx = w * 0.5 + math.sin(t * 0.8) * w * 0.25
+        cy = h * 0.6 + math.cos(t * 0.5) * h * 0.1
+        for i in range(6):
+            c = int(min(255, (90 + 25 * i) * gain))
+            d.rectangle([cx - 120 + i * 20, cy - 80 + i * 14, cx + 120 - i * 20, cy + 80 - i * 14], outline=(c, c, c), width=3)
     d.text((24, h - 44), f"SIM  {CAM.shutter}  F{CAM.fnumber}  ISO {CAM.iso}  {CAM.focus_mode}", fill=(255, 255, 255), font=FONT)
     buf = io.BytesIO(); img.save(buf, "JPEG", quality=80); return buf.getvalue()
 
@@ -264,7 +273,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--port", type=int, default=8080); ap.add_argument("--fps", type=float, default=24); ap.add_argument("--no-ssdp", action="store_true")
     ap.add_argument("--stills", action="store_true", help="start with the mode dial on a still position (photo mode)")
     ap.add_argument("--pz", action="store_true", help="pretend a power-zoom lens is mounted (actZoom + zoomInformation)")
+    ap.add_argument("--photo", help="serve this JPEG/PNG as the live view (exposure gain still applies); use a photo with a face to try Shot Assist")
     a = ap.parse_args()
+    if a.photo: PHOTO = Image.open(a.photo).convert("RGB")
     if a.stills: CAM.shoot_mode = "still"
     if a.pz: CAM.pz = True
     if not a.no_ssdp: threading.Thread(target=ssdp_responder, args=(a.port,), daemon=True).start()
