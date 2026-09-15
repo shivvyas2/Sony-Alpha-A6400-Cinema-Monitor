@@ -12,6 +12,8 @@ struct StripReadout: View {
     var candidates: [String] = []
     var enabled: Bool = true
     var accent: Color = Theme.text
+    /// Raw current value for the picker highlight when `value` is a derived display (e.g. shutter angle).
+    var currentRaw: String? = nil
     var format: (String) -> String = { $0 }
     var onSelect: (String) -> Void = { _ in }
     var onStep: (Int) -> Void = { _ in }
@@ -36,7 +38,7 @@ struct StripReadout: View {
             .focusEffectDisabled()
             .onHover { hover = $0 }
             .popover(isPresented: $showPicker, arrowEdge: .bottom) {
-                CandidatePicker(title: label, current: value, candidates: candidates, format: format) { v in
+                CandidatePicker(title: label, current: currentRaw.map(format) ?? value, candidates: candidates, format: format) { v in
                     showPicker = false; onSelect(v)
                 }
             }
@@ -82,7 +84,7 @@ struct TopStrip: View {
                          onSelect: { v in if let f = Int(v) { ov.projectFPS = f } },
                          onStep: { d in if let i = fpsChoices.firstIndex(of: "\(ov.projectFPS)") { ov.projectFPS = Int(fpsChoices[max(0, min(fpsChoices.count - 1, i + d))])! } })
             StripReadout(label: "SHUTTER", value: shutterAngle(s.shutterSpeed, fps: overlays.projectFPS), suffix: s.shutterSpeed ?? "",
-                         candidates: s.shutterSpeedCandidates, enabled: s.supports("setShutterSpeed"),
+                         candidates: s.shutterSpeedCandidates, enabled: s.supports("setShutterSpeed"), currentRaw: s.shutterSpeed,
                          format: { "\(shutterAngle($0, fps: overlays.projectFPS))   \($0)" },
                          onSelect: { v in Task { await session.setShutterSpeed(v) } },
                          onStep: { d in Task { await session.step(s.shutterSpeedCandidates, current: s.shutterSpeed, by: d) { await session.setShutterSpeed($0) } } })

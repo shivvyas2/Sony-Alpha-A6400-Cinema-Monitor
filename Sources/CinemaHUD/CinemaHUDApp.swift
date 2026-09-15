@@ -228,6 +228,26 @@ struct ContentView: View {
             } else if ProcessInfo.processInfo.environment["CINEMAHUD_USB"] == "1", session.phase == .idle {
                 await session.connectUSB()
             }
+            // Dev: exercise the same calls the strip readouts make, then print the resulting state.
+            if let actions = ProcessInfo.processInfo.environment["CINEMAHUD_ACTION"], session.phase.isConnected {
+                for a in actions.split(separator: ";") {
+                    let kv = a.split(separator: "=", maxSplits: 1).map(String.init)
+                    guard kv.count == 2 else { continue }
+                    let t0 = Date()
+                    switch kv[0] {
+                    case "shutter": await session.setShutterSpeed(kv[1])
+                    case "iris": await session.setFNumber(kv[1])
+                    case "iso": await session.setISO(kv[1])
+                    case "ev": await session.setExposureCompensation(index: Int(kv[1]) ?? 0)
+                    default: break
+                    }
+                    try? await Task.sleep(for: .milliseconds(600))
+                    print(String(format: "action %@=%@ -> shutter=%@ iris=%@ iso=%@ ev=%@ err=%@ (%.1fs)", kv[0], kv[1],
+                                 session.state.shutterSpeed ?? "-", session.state.fNumber ?? "-", session.state.iso ?? "-",
+                                 session.state.exposureCompensation?.label ?? "-", session.lastError ?? "none", Date().timeIntervalSince(t0)))
+                    fflush(stdout)
+                }
+            }
         }
     }
 }
