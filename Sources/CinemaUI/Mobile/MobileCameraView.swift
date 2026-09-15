@@ -18,7 +18,7 @@ public struct MobileCameraView: View {
     @State private var isPortrait = true
 
     enum MobileSheet: String, Identifiable {
-        case guides, focus, zoom, format, settings, shutter, iris, iso, ev, wb
+        case guides, focus, zoom, format, settings, shutter, iris, iso, ev, wb, fps
         var id: String { rawValue }
         /// Everything but Settings docks beside the picture in landscape so the feed stays in view.
         var docksInLandscape: Bool { self != .settings }
@@ -78,7 +78,62 @@ public struct MobileCameraView: View {
 
     // MARK: Layouts
 
-    private func landscapeLayout(_ size: CGSize) -> some View {
+    @ViewBuilder private func landscapeLayout(_ size: CGSize) -> some View {
+        if overlays.shootingMode == .photo { landscapePhotoLayout } else { viewfinderLayout }
+    }
+
+    /// Video, landscape: the cinema viewfinder. Exposure strip above, status strip below, the picture
+    /// between with tool columns on its edges (the same chrome as the Mac, at touch size). Tapping a
+    /// readout or GUIDE opens the side panel over the picture's right edge, beside the tool column.
+    private var viewfinderLayout: some View {
+        VStack(spacing: 0) {
+            TopStrip()
+            ZStack(alignment: .trailing) {
+                picture
+                HStack(spacing: 0) {
+                    LeftTools().padding(.leading, 4)
+                    Spacer()
+                    RightTools().padding(.trailing, 4)
+                }
+                if let h = hint {
+                    Text(h).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.warn)
+                        .padding(.horizontal, 10).padding(.vertical, 5).background(Color.black.opacity(0.6), in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(.top, 8)
+                        .allowsHitTesting(false)
+                }
+                if let which = sheet, which.docksInLandscape {
+                    MobilePanel(onClose: { sheet = nil }) { sheetView(which) }
+                        .padding(.trailing, 64)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: sheet)
+            BottomStrip()
+        }
+        .environment(\.hudTouch, true)
+        .environment(\.hudPick, { label in
+            switch label {
+            case "FPS": toggle(.fps)
+            case "SHUTTER": toggle(.shutter)
+            case "IRIS": toggle(.iris)
+            case "EI": toggle(.iso)
+            case "EV": toggle(.ev)
+            case "WB": toggle(.wb)
+            case "FOCUS": toggle(.focus)
+            default: break
+            }
+        })
+        .environment(\.hudAction, { action in
+            switch action {
+            case .guides: toggle(.guides)
+            case .menu, .profile: sheet = .settings
+            case .photo: switchMode(to: .photo)
+            }
+        })
+    }
+
+    /// Photo, landscape: touch rails around the picture with the shutter and filmstrip.
+    private var landscapePhotoLayout: some View {
         HStack(spacing: 0) {
             leftRail
             VStack(spacing: 0) {
@@ -379,7 +434,11 @@ public struct MobileCameraView: View {
         case .settings: MobileSettingsView()
         case .shutter: MobileCandidateSheet(title: "Shutter", current: s.shutterSpeed ?? "", candidates: s.shutterSpeedCandidates) { v in Task { await session.setShutterSpeed(v) } }
         case .iris: MobileCandidateSheet(title: "Iris", current: s.fNumber ?? "", candidates: s.fNumberCandidates, format: { "F" + $0 }) { v in Task { await session.setFNumber(v) } }
-        case .iso: MobileCandidateSheet(title: "ISO", current: s.iso ?? "", candidates: s.isoCandidates) { v in Task { await session.setISO(v) } }
+        case .iso: MobileCandidateSheet(title: "EI", current: s.iso ?? "", candidates: s.isoCandidates) { v in Task { await session.setISO(v) } }
+        case .fps:
+            MobileCandidateSheet(title: "FPS", current: String(overlays.projectFPS), candidates: ["24", "25", "30", "48", "50", "60"], format: { $0 + ".000" }) { v in
+                if let f = Int(v) { overlays.projectFPS = f }
+            }
         case .ev:
             let ev = s.exposureCompensation
             let items = ev.map { e in (e.minIndex ... e.maxIndex).reversed().map { String($0) } } ?? []
@@ -392,9 +451,14 @@ public struct MobileCameraView: View {
                 if let i = Int(v) { Task { await session.setExposureCompensation(index: i) } }
             }
         case .wb:
-            let modes = s.whiteBalanceCandidates.isEmpty ? ["Auto WB", "Daylight", "Shade", "Cloudy", "Incandescent", "Flash", "Color Temperature"] : s.whiteBalanceCandidates
-            MobileCandidateSheet(title: "White balance", current: s.whiteBalanceMode ?? "", candidates: modes) { v in
-                Task { await session.setWhiteBalance(mode: v, colorTemp: v == "Color Temperature" ? (s.colorTemperature ?? 5600) : nil) }
+            // Presets first, then Kelvin in 100 K steps, as on the Mac strip.
+            let modes = (s.whiteBalanceCandidates.isEmpty ? ["Auto WB", "Daylight", "Shade", "Cloudy", "Incandescent", "Flash"] : s.whiteBalanceCandidates)
+                .filter { $0 != "Color Temperature" }
+            let kelvin = stride(from: 2500, through: 9900, by: 100).map(String.init)
+            let current = s.whiteBalanceMode == "Color Temperature" ? s.colorTemperature.map(String.init) ?? "" : (s.whiteBalanceMode ?? "")
+            MobileCandidateSheet(title: "White balance", current: current, candidates: modes + kelvin, format: { Int($0) != nil ? $0 + " K" : $0 }) { v in
+                if let k = Int(v) { Task { await session.setWhiteBalance(mode: "Color Temperature", colorTemp: k) } }
+                else { Task { await session.setWhiteBalance(mode: v, colorTemp: nil) } }
             }
         }
     }

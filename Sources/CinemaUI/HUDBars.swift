@@ -1,6 +1,22 @@
 import SwiftUI
 import SonyCameraKit
 
+// MARK: - Mobile hooks
+
+/// Set by the iPhone / iPad landscape viewfinder: strips and edge buttons grow to touch size.
+struct HUDTouchKey: EnvironmentKey { static let defaultValue = false }
+/// When set, tapping a strip readout hands its label ("SHUTTER", "WB", …) to the host instead of
+/// opening the desktop popover, so the phone can show its side panel.
+struct HUDPickKey: EnvironmentKey { static let defaultValue: ((String) -> Void)? = nil }
+/// Edge-column actions the phone routes to its own panels or sheets instead of the desktop chrome.
+enum HUDAction { case profile, guides, menu, photo }
+struct HUDActionKey: EnvironmentKey { static let defaultValue: ((HUDAction) -> Void)? = nil }
+extension EnvironmentValues {
+    var hudTouch: Bool { get { self[HUDTouchKey.self] } set { self[HUDTouchKey.self] = newValue } }
+    var hudPick: ((String) -> Void)? { get { self[HUDPickKey.self] } set { self[HUDPickKey.self] = newValue } }
+    var hudAction: ((HUDAction) -> Void)? { get { self[HUDActionKey.self] } set { self[HUDActionKey.self] = newValue } }
+}
+
 // MARK: - Shared pieces
 
 /// Small tracked label with a large condensed value, the viewfinder vernacular. Click for a picker,
@@ -19,19 +35,22 @@ struct StripReadout: View {
     var onStep: (Int) -> Void = { _ in }
     @State private var showPicker = false
     @State private var hover = false
+    @Environment(\.hudTouch) private var touch
+    @Environment(\.hudPick) private var pick
 
     var body: some View {
         ScrollStepper(onStep: { if enabled { onStep($0) } }) {
             Button {
-                if enabled && !candidates.isEmpty { showPicker.toggle() }
+                if let pick { if enabled { pick(label) } }
+                else if enabled && !candidates.isEmpty { showPicker.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(label).font(Theme.label(9)).tracking(1.2).foregroundStyle(hover && enabled ? Theme.accent : Theme.dim)
-                    Text(value).font(Theme.strip()).foregroundStyle(enabled ? accent : Theme.faint)
-                    if !suffix.isEmpty { Text(suffix).font(Theme.strip(12)).foregroundStyle(Theme.dim) }
+                HStack(alignment: .firstTextBaseline, spacing: touch ? 4 : 5) {
+                    Text(label).font(Theme.label(touch ? 8.5 : 9)).tracking(1.2).foregroundStyle(hover && enabled ? Theme.accent : Theme.dim)
+                    Text(value).font(Theme.strip(touch ? 15 : 17)).foregroundStyle(enabled ? accent : Theme.faint)
+                    if !suffix.isEmpty { Text(suffix).font(Theme.strip(touch ? 11 : 12)).foregroundStyle(Theme.dim) }
                 }
-                .padding(.horizontal, 8)
-                .frame(height: 30)
+                .padding(.horizontal, touch ? 5 : 8)
+                .frame(height: touch ? 44 : 30)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -53,11 +72,12 @@ struct EdgeButton: View {
     var enabled = true
     var tint: Color? = nil
     let action: () -> Void
+    @Environment(\.hudTouch) private var touch
     var body: some View {
         Button(action: action) {
-            Text(title).font(.system(size: 9.5, weight: .bold)).tracking(0.6)
+            Text(title).font(.system(size: touch ? 10 : 9.5, weight: .bold)).tracking(0.6)
                 .foregroundStyle(active ? Color.black : (tint ?? Theme.text))
-                .frame(width: 46, height: 24)
+                .frame(width: touch ? 54 : 46, height: touch ? 30 : 24)
                 .background(active ? Theme.accent : Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.18), lineWidth: 0.5))
                 .contentShape(Rectangle())
@@ -74,14 +94,15 @@ struct EdgeButton: View {
 struct TopStrip: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @Environment(\.hudTouch) private var touch
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            row.frame(height: 34)
+            row.frame(height: touch ? 44 : 34)
             // Narrow screens: two rows, still every readout.
             VStack(spacing: 0) {
-                HStack(spacing: 2) { exposureReadouts(first: true); Spacer(minLength: 0) }.frame(height: 32)
-                HStack(spacing: 2) { exposureReadouts(first: false); Spacer(minLength: 0); badges }.frame(height: 32)
+                HStack(spacing: 2) { exposureReadouts(first: true); Spacer(minLength: 0) }.frame(height: touch ? 40 : 32)
+                HStack(spacing: 2) { exposureReadouts(first: false); Spacer(minLength: 0); badges }.frame(height: touch ? 40 : 32)
             }
         }
         .background(Theme.field)
@@ -316,12 +337,23 @@ struct BottomStrip: View {
 struct LeftTools: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @Environment(\.hudTouch) private var touch
+    @Environment(\.hudAction) private var route
     @State private var showProfile = false
 
     var body: some View {
+        // On the phone the column is taller than the screen, so it scrolls.
+        if touch { ScrollView(showsIndicators: false) { column } } else { column }
+    }
+
+    private var column: some View {
         @Bindable var ov = overlays
-        VStack(spacing: 5) {
-            EdgeButton(title: overlays.profile.short, active: false, tint: overlays.profile.isLog ? Theme.accent : Theme.text) { showProfile.toggle() }
+        return VStack(spacing: touch ? 2 : 5) {
+            // The phone sets the profile from MENU; the column only has room for the tools.
+            if route == nil {
+            EdgeButton(title: overlays.profile.short, active: false, tint: overlays.profile.isLog ? Theme.accent : Theme.text) {
+                showProfile.toggle()
+            }
                 .popover(isPresented: $showProfile, arrowEdge: .trailing) {
                     VStack(alignment: .leading, spacing: 0) {
                         Text("PICTURE PROFILE ON CAMERA").font(Theme.label()).tracking(1.6).foregroundStyle(Theme.dim).padding(12)
@@ -339,32 +371,39 @@ struct LeftTools: View {
                     }
                     .background(Theme.panel)
                 }
+            }
             EdgeButton(title: overlays.lutOn ? (overlays.customLUT != nil ? "LUT" : "709") : "LOG", active: overlays.lutOn && (overlays.profile.isLog || overlays.customLUT != nil),
                        enabled: overlays.profile.isLog || overlays.customLUT != nil) { ov.lutOn.toggle() }
             EdgeButton(title: "EXP", active: overlays.falseColor) { ov.falseColor.toggle() }
             EdgeButton(title: "PEAK", active: overlays.peaking) { ov.peaking.toggle() }
             EdgeButton(title: "ZEBRA", active: overlays.zebra) { ov.zebra.toggle() }
             EdgeButton(title: "2.00×", active: overlays.magnify) { ov.magnify.toggle() }
-            Spacer().frame(height: 6)
+            Spacer().frame(height: touch ? 2 : 6)
             EdgeButton(title: "FRAME", active: overlays.grid) { ov.grid.toggle() }
-            EdgeButton(title: "GUIDE", active: overlays.frameGuides) { ov.frameGuides.toggle() }
+            EdgeButton(title: "GUIDE", active: overlays.frameGuides) { if let route { route(.guides) } else { ov.frameGuides.toggle() } }
             EdgeButton(title: overlays.crop == .native ? "CROP" : overlays.crop.label, active: overlays.crop != .native) { ov.crop = ov.crop.next }
-            Spacer()
-            EdgeButton(title: "MENU", active: overlays.showMenu) { ov.showMenu.toggle() }
+            Spacer(minLength: touch ? 6 : 0)
+            if let route { EdgeButton(title: "PHOTO") { route(.photo) } }
+            EdgeButton(title: "MENU", active: overlays.showMenu) { if let route { route(.menu) } else { ov.showMenu.toggle() } }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, touch ? 2 : 8)
     }
 }
 
 struct RightTools: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @Environment(\.hudTouch) private var touch
 
     var body: some View {
+        if touch { ScrollView(showsIndicators: false) { column } } else { column }
+    }
+
+    private var column: some View {
         @Bindable var ov = overlays
         let s = session.state
         let canRec = s.supports("startMovieRec") || s.supports("stopMovieRec")
-        VStack(spacing: 5) {
+        return VStack(spacing: touch ? 2 : 5) {
             EdgeButton(title: overlays.scope == .none ? "SCOPE" : overlays.scope.rawValue, active: overlays.scope != .none) { ov.scope = ov.scope.next }
             EdgeButton(title: "ENH", active: overlays.enhanced) { ov.enhanced.toggle() }
             EdgeButton(title: session.motionFactor > 1 ? "×\(session.motionFactor)" : "MOTION", active: session.motionFactor > 1) {
@@ -373,7 +412,7 @@ struct RightTools: View {
             EdgeButton(title: session.denoise > 0 ? (session.denoise > 0.6 ? "NR2" : "NR1") : "NR", active: session.denoise > 0) {
                 session.denoise = session.denoise == 0 ? 0.5 : (session.denoise > 0.6 ? 0 : 1)
             }
-            Spacer().frame(height: 6)
+            Spacer().frame(height: touch ? 2 : 6)
             EdgeButton(title: "AF", enabled: s.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
             EdgeButton(title: "AEL") { Task { await session.press(.aeLock) } }
             HStack(spacing: 3) {
@@ -381,10 +420,10 @@ struct RightTools: View {
             }
             EdgeButton(title: "FAR ▶", enabled: session.focusDriveAvailable) { Task { await session.focusDrive(2) } }
             EdgeButton(title: "STILL", enabled: s.supports("actTakePicture")) { Task { await session.takePicture() } }
-            Spacer()
+            Spacer(minLength: touch ? 6 : 0)
             Button { Task { await session.toggleRecording() } } label: {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 3).fill(s.isRecording ? Theme.rec : Color.white.opacity(0.14)).frame(width: 46, height: 34)
+                    RoundedRectangle(cornerRadius: 3).fill(s.isRecording ? Theme.rec : Color.white.opacity(0.14)).frame(width: touch ? 54 : 46, height: touch ? 30 : 34)
                     HStack(spacing: 5) {
                         Circle().fill(s.isRecording ? Color.white : Theme.rec).frame(width: 10, height: 10)
                         Text(s.isRecording ? "STOP" : "REC").font(.system(size: 9.5, weight: .bold)).foregroundStyle(Theme.text)
@@ -393,7 +432,7 @@ struct RightTools: View {
             }
             .buttonStyle(.plain).disabled(!canRec).opacity(canRec ? 1 : 0.35)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, touch ? 2 : 8)
     }
 }
 
