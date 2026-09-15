@@ -94,6 +94,9 @@ struct ReviewView: View {
         }
         .gesture(DragGesture().onChanged { v in if zoom > 0 { pan = CGSize(width: v.translation.width + panStart.width, height: v.translation.height + panStart.height) } }
                               .onEnded { _ in panStart = pan })
+        #if !os(macOS)
+        .simultaneousGesture(MagnificationGesture().onEnded { m in cycleZoom(m > 1 ? 1 : -1) })
+        #endif
         .background(ScrollStepper(onStep: { d in cycleZoom(d) }) { Color.clear })
     }
 
