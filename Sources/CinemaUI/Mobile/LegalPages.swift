@@ -3,7 +3,7 @@ import SwiftUI
 /// Privacy Policy and Terms of Use, as plain text with `# ` headings. Shown in Settings and reusable for a store listing.
 public enum LegalText {
     public static let developer = "Shiv Vyas"
-    public static let contact = "[contact email]"
+    public static let contact = "shivvyas0209@gmail.com"
     public static let effectiveDate = "15 September 2026"
 
     public struct Paragraph: Identifiable, Equatable {

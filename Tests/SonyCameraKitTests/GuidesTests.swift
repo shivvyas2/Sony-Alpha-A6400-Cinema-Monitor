@@ -11,7 +11,9 @@ final class GuidesTests: XCTestCase {
     func testLegalTextsAreComplete() {
         XCTAssertTrue(LegalText.privacyPolicy.contains("does not collect"))
         XCTAssertTrue(LegalText.privacyPolicy.contains("Shiv Vyas"))
-        XCTAssertTrue(LegalText.privacyPolicy.contains("[contact email]"))
+        XCTAssertTrue(LegalText.privacyPolicy.contains("shivvyas0209@gmail.com"))
+        XCTAssertFalse(LegalText.privacyPolicy.contains("[contact email]"))
+        XCTAssertTrue(LegalText.termsOfUse.contains("shivvyas0209@gmail.com"))
         XCTAssertTrue(LegalText.termsOfUse.contains("not affiliated"))
         XCTAssertTrue(LegalText.termsOfUse.contains("AS IS"))
         XCTAssertEqual(LegalText.paragraphs(LegalText.termsOfUse).filter { $0.isHeading }.count, 8)
