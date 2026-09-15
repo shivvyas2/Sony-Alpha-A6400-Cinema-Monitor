@@ -399,6 +399,15 @@ public final class CameraSession {
     /// Nudge manual focus: negative = near, positive = far, |steps| = size (1 fine … 7 coarse).
     public func focusDrive(_ steps: Int) async { await perform("Focus") { try await $0.focusDrive(steps: steps) } }
     public func press(_ button: CameraButton) async { await perform(button.rawValue) { try await $0.press(button) } }
+    public func zoom(_ direction: ZoomDirection, _ movement: ZoomMovement) async { await perform("Zoom") { try await $0.zoom(direction, movement) } }
+    public func setStillSize(_ s: StillSize) async { await perform("Still size") { try await $0.setStillSize(s) } }
+    public func setMovieQuality(_ v: String) async { await perform("Movie quality") { try await $0.setMovieQuality(v) } }
+    public func setMovieFileFormat(_ v: String) async { await perform("Movie format") { try await $0.setMovieFileFormat(v) } }
+
+    public var zoomAvailable: Bool { state.supports("actZoom") }
+    public var stillSizeAvailable: Bool { state.supports("setStillSize") && !state.stillSizeCandidates.isEmpty }
+    public var movieQualityAvailable: Bool { state.supports("setMovieQuality") && !state.movieQualityCandidates.isEmpty }
+    public var movieFileFormatAvailable: Bool { state.supports("setMovieFileFormat") && !state.movieFileFormatCandidates.isEmpty }
 
     // MARK: Errors
 

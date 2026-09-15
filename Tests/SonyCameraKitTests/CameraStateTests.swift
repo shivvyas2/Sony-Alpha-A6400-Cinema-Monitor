@@ -82,4 +82,21 @@ final class CameraStateTests: XCTestCase {
         XCTAssertEqual(cam.friendlyName, "ILCE-6400")
         XCTAssertEqual(cam.serviceURL.absoluteString, "http://192.168.122.1:8080/sony")
     }
+
+    func testDecodesFormatAndZoomEvents() throws {
+        let json = """
+        [
+          {"type":"stillSize","currentAspect":"3:2","currentSize":"L"},
+          {"type":"movieQuality","currentMovieQuality":"PS","movieQualityCandidates":["PS","HQ","STD"]},
+          {"type":"movieFileFormat","currentMovieFileFormat":"XAVC S","movieFileFormatCandidates":["MP4","XAVC S"]},
+          {"type":"zoomInformation","zoomPosition":42,"zoomNumberBox":1,"zoomIndexCurrentBox":0,"zoomPositionCurrentBox":42}
+        ]
+        """
+        var s = CameraState()
+        s.apply(event: try JSON.parse(Data(json.utf8)))
+        XCTAssertEqual(s.stillSize, StillSize(aspect: "3:2", size: "L"))
+        XCTAssertEqual(s.movieQuality, "PS"); XCTAssertEqual(s.movieQualityCandidates, ["PS", "HQ", "STD"])
+        XCTAssertEqual(s.movieFileFormat, "XAVC S"); XCTAssertEqual(s.movieFileFormatCandidates, ["MP4", "XAVC S"])
+        XCTAssertEqual(s.zoomPosition, 42)
+    }
 }

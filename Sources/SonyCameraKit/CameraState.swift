@@ -61,6 +61,12 @@ public struct CameraState: Sendable, Equatable {
     public var recordingTimeSeconds: Int = 0
     public var numberOfShots: Int = 0
     public var zoomPosition: Int?
+    public var stillSize: StillSize?
+    public var stillSizeCandidates: [StillSize] = []
+    public var movieQuality: String?
+    public var movieQualityCandidates: [String] = []
+    public var movieFileFormat: String?
+    public var movieFileFormatCandidates: [String] = []
     public var lastPictureURLs: [String] = []
     /// Lens focal length in mm when the camera reports it (USB).
     public var focalLengthMM: Double?
@@ -89,6 +95,9 @@ public struct CameraState: Sendable, Equatable {
         && a.shutterSpeedCandidates == b.shutterSpeedCandidates && a.fNumberCandidates == b.fNumberCandidates
         && a.isoCandidates == b.isoCandidates && a.focusModeCandidates == b.focusModeCandidates
         && a.whiteBalanceCandidates == b.whiteBalanceCandidates && a.lastPictureURLs == b.lastPictureURLs
+        && a.stillSize == b.stillSize && a.stillSizeCandidates == b.stillSizeCandidates
+        && a.movieQuality == b.movieQuality && a.movieQualityCandidates == b.movieQualityCandidates
+        && a.movieFileFormat == b.movieFileFormat && a.movieFileFormatCandidates == b.movieFileFormatCandidates
     }
 
     /// Merge one `getEvent` result array. Items are matched by their `type` field; nulls are skipped.
@@ -172,6 +181,14 @@ public struct CameraState: Sendable, Equatable {
             numberOfShots = item["numberOfShots"].int ?? numberOfShots
         case "zoomInformation":
             zoomPosition = item["zoomPosition"].int ?? zoomPosition
+        case "stillSize":
+            if let a = item["currentAspect"].string, let s = item["currentSize"].string { stillSize = StillSize(aspect: a, size: s) }
+        case "movieQuality":
+            movieQuality = item["currentMovieQuality"].string ?? movieQuality
+            let c = item["movieQualityCandidates"].stringArray; if !c.isEmpty { movieQualityCandidates = c }
+        case "movieFileFormat":
+            movieFileFormat = item["currentMovieFileFormat"].string ?? movieFileFormat
+            let c = item["movieFileFormatCandidates"].stringArray; if !c.isEmpty { movieFileFormatCandidates = c }
         case "takePicture":
             lastPictureURLs = item["takePictureUrl"].stringArray
         default:
