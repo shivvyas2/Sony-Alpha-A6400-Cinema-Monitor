@@ -52,7 +52,9 @@ click Discover; allow it.
 | 2× magnify | 2.00× | X |
 | Scopes: waveform, RGB parade, RGB histogram, vectorscope | SCOPE cycles | W |
 | Picture profile / LOG ↔ 709 view / custom .cube LUT | profile badge, LOG/709 button, Overlays menu | L |
-| Enhanced upscaling / smooth motion | ENH, MOTION | E, M |
+| Enhanced upscaling (MetalFX + detail recovery) | ENH | E |
+| Smooth motion ×2 / ×4 / ×8 (30 / 60 / 120 fps) | MOTION cycles | M |
+| Live denoise NR1 / NR2 (temporal, motion-compensated) | NR cycles | D |
 | Camera menu (drive, metering, DRO, flash, focus area, image size, aspect, picture effect, …) | MENU | N |
 | Rotate display for vertical mounting | Aspect menu | T |
 | Hide the HUD | | H |
@@ -93,12 +95,31 @@ not reveal detail or focus the sensor feed does not contain. Frame rate is uncha
 
 ### Smooth motion
 
-**MOTION** (M) doubles the displayed frame rate, 15 → 30 fps over USB, by synthesizing the frame
-between each pair of real frames: Vision computes dense optical flow between them and a Metal
-kernel warps both toward the midpoint. Because the midpoint needs the following frame, the picture
-is shown one input frame later (about 66 ms at 15 fps); the top bar shows the added delay. Motion
-looks smoother, but nothing new is captured. Turn it off when you need the lowest latency, such as
-pulling focus.
+**MOTION** multiplies the displayed frame rate, ×2, ×4 or ×8 (30, 60 or 120 fps from the
+camera's 15), by synthesizing the frames between each pair of real frames: Vision computes dense
+optical flow once per pair and a Metal kernel warps both real frames to each in-between time.
+Because the in-betweens need the following frame, the picture is shown one input frame later
+(about 66 ms at 15 fps); the bottom strip shows the multiplier and the added delay. ×8 only
+matters on a 120 Hz (ProMotion) display. Motion looks smoother, but nothing new is captured;
+turn it off when pulling critical focus.
+
+### Live denoise
+
+**NR** (D) is a temporal, motion-compensated noise reducer: every incoming frame is blended
+with the previous cleaned frame warped along the optical flow, and the blend weight drops to
+zero wherever the two disagree, so grain averages out while moving edges stay crisp. NR1 is
+light, NR2 strong. It costs one flow computation per frame (about 20 ms) and no extra delay.
+Like every monitor tool, it changes only what you see, not what the camera records.
+
+### What "true quality" means here
+
+The recording is not affected by any of this. The camera writes its full 4K or 1080p file
+internally; the Mac only receives a 1024-pixel-wide monitoring stream. ENHANCE makes that
+stream look as close to the recording as a real-time GPU pipeline can: temporal denoise first
+(if NR is on), MetalFX edge-aware reconstruction to the display resolution, then an edge-gated
+detail-recovery pass that raises local contrast only where there is real structure. It cannot
+invent detail the stream never contained, so judge critical focus with PEAK and 2× magnify, and
+judge exposure with the scopes and false color, which read the actual pixel values.
 
 ### Live view quality and frame rate
 

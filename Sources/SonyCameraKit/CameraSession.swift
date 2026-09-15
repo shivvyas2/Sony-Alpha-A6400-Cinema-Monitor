@@ -29,8 +29,11 @@ public final class CameraSession {
     public private(set) var sourceFPS: Double = 0
     /// Number of recordings started this session.
     public private(set) var takes = 0
-    /// Synthesize a midpoint frame between real frames (doubles displayed fps, adds one frame of delay).
-    public var smoothMotion = false { didSet { if !smoothMotion { interpolator?.reset() } } }
+    /// Frame-rate multiplier for synthesized in-between frames: 1 = off, 2, 4 or 8. Adds one frame of delay.
+    public var motionFactor = 1 { didSet { interpolator?.factor = motionFactor; if motionFactor == 1 && denoise == 0 { interpolator?.reset() } } }
+    public var smoothMotion: Bool { get { motionFactor > 1 } set { motionFactor = newValue ? 2 : 1 } }
+    /// Temporal noise reduction strength 0…1 (0 = off).
+    public var denoise: Float = 0 { didSet { interpolator?.denoise = denoise; if motionFactor == 1 && denoise == 0 { interpolator?.reset() } } }
     public private(set) var lastError: String?
     public private(set) var cameraName: String = ""
     public private(set) var transport: CameraTransportKind?
@@ -196,7 +199,7 @@ public final class CameraSession {
             sourceCount += 1
             let elapsed = Date().timeIntervalSince(sourceWindow)
             if elapsed >= 1 { sourceFPS = Double(sourceCount) / elapsed; sourceCount = 0; sourceWindow = Date() }
-            if smoothMotion, let interpolator {
+            if motionFactor > 1 || denoise > 0, let interpolator {
                 interpolator.push(img, at: CFAbsoluteTimeGetCurrent()) { out in
                     Task { @MainActor [weak self] in self?.display(out) }
                 }

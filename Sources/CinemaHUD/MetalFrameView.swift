@@ -49,10 +49,43 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
     private var upload: (data: UnsafeMutableRawPointer, bytesPerRow: Int, w: Int, h: Int)?
     private var scaler: MTLFXSpatialScaler?
     private var scalerOutput: MTLTexture?
+    private var sharpenPipeline: MTLComputePipelineState?
+    private var sharpenOutput: MTLTexture?
+    /// Detail recovery after upscaling: unsharp amount (0 = off).
+    var sharpen: Float = 0.35
+
+    private static let sharpenSource = """
+    #include <metal_stdlib>
+    using namespace metal;
+    // Edge-aware unsharp mask: boosts local contrast where there is real structure, leaves flat
+    // (noisy) areas alone so grain is not amplified.
+    kernel void sharpen(texture2d<float, access::read> src [[texture(0)]],
+                        texture2d<float, access::write> dst [[texture(1)]],
+                        constant float& amount [[buffer(0)]],
+                        uint2 gid [[thread_position_in_grid]]) {
+        uint W = dst.get_width(), H = dst.get_height();
+        if (gid.x >= W || gid.y >= H) return;
+        float4 c = src.read(gid);
+        float4 sum = 0;
+        for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+            uint2 p = uint2(clamp(int(gid.x) + dx, 0, int(W) - 1), clamp(int(gid.y) + dy, 0, int(H) - 1));
+            sum += src.read(p);
+        }
+        float4 blur = sum / 9.0;
+        float4 detail = c - blur;
+        float mag = max(abs(detail.r), max(abs(detail.g), abs(detail.b)));
+        float gate = smoothstep(0.01, 0.06, mag);          // ignore sub-threshold noise
+        float4 o = c + detail * amount * 2.0 * gate;
+        dst.write(float4(clamp(o.rgb, 0.0, 1.0), 1.0), gid);
+    }
+    """
 
     override init() {
         metalFXSupported = MTLFXSpatialScalerDescriptor.supportsDevice(device)
         super.init()
+        if let lib = try? device.makeLibrary(source: Self.sharpenSource, options: nil), let fn = lib.makeFunction(name: "sharpen") {
+            sharpenPipeline = try? device.makeComputePipelineState(function: fn)
+        }
     }
     deinit { upload?.data.deallocate() }
 
@@ -72,8 +105,18 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
             scaler.colorTexture = input
             scaler.outputTexture = out
             scaler.encode(commandBuffer: cb)
+            var source = out
+            if sharpen > 0, let sp = sharpenPipeline, let sharp = sharpenTexture(w: out.width, h: out.height), let enc = cb.makeComputeCommandEncoder() {
+                enc.setComputePipelineState(sp)
+                enc.setTexture(out, index: 0); enc.setTexture(sharp, index: 1)
+                var amt = sharpen
+                enc.setBytes(&amt, length: MemoryLayout<Float>.size, index: 0)
+                enc.dispatchThreadgroups(MTLSize(width: (out.width + 15) / 16, height: (out.height + 15) / 16, depth: 1), threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+                enc.endEncoding()
+                source = sharp
+            }
             if let blit = cb.makeBlitCommandEncoder() {
-                blit.copy(from: out, to: dst)
+                blit.copy(from: source, to: dst)
                 blit.endEncoding()
             }
         } else {
@@ -111,6 +154,14 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
         input.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: up.data, bytesPerRow: bpr)
     }
 
+    private func sharpenTexture(w: Int, h: Int) -> MTLTexture? {
+        if let t = sharpenOutput, t.width == w, t.height == h { return t }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
+        d.usage = [.shaderRead, .shaderWrite]; d.storageMode = .private
+        sharpenOutput = device.makeTexture(descriptor: d)
+        return sharpenOutput
+    }
+
     private func spatialScaler(inW: Int, inH: Int, outW: Int, outH: Int) -> MTLFXSpatialScaler? {
         if let s = scaler, s.inputWidth == inW, s.inputHeight == inH, s.outputWidth == outW, s.outputHeight == outH { return s }
         let d = MTLFXSpatialScalerDescriptor()
@@ -121,7 +172,7 @@ final class FrameRenderer: NSObject, MTKViewDelegate {
         d.colorProcessingMode = .perceptual
         guard let s = d.makeSpatialScaler(device: device) else { return nil }
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: outW, height: outH, mipmapped: false)
-        td.usage = [.renderTarget, .shaderRead]
+        td.usage = [.renderTarget, .shaderRead, .shaderWrite]
         td.storageMode = .private
         scalerOutput = device.makeTexture(descriptor: td)
         scaler = s

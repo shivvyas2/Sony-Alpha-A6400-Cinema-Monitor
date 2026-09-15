@@ -4,51 +4,87 @@ import Metal
 import Vision
 import CoreVideo
 
-/// Doubles the frame rate by synthesizing a midpoint frame between consecutive real frames:
-/// dense optical flow (Vision) between A and B, then a GPU warp of both toward the middle.
-/// Output is delayed by one input frame, because the midpoint needs B before it can be drawn.
+/// Frame-rate multiplication and temporal noise reduction driven by dense optical flow (Vision)
+/// and small Metal kernels.
+///
+/// * Motion (`factor` 2/4/8): between real frames A and B, synthesizes `factor - 1` frames at
+///   fractional times by warping both toward t. Output is delayed by one input frame.
+/// * Denoise (`denoise` > 0): each incoming frame is blended with the previous cleaned frame warped
+///   along the flow; the blend weight falls to zero where the two disagree (moving edges), so grain
+///   averages out while motion stays sharp.
 public final class MotionInterpolator: @unchecked Sendable {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
-    private let pipeline: MTLComputePipelineState
+    private let warpPipeline: MTLComputePipelineState
+    private let nrPipeline: MTLComputePipelineState
     private let work = DispatchQueue(label: "cinemahud.motion", qos: .userInteractive)
     private var prev: (image: CGImage, texture: MTLTexture, time: TimeInterval)?
-    private var texA: MTLTexture?, texB: MTLTexture?, texFlow: MTLTexture?, texOut: MTLTexture?
+    private var texA: MTLTexture?, texB: MTLTexture?, texFlow: MTLTexture?, texOut: MTLTexture?, texNR: MTLTexture?, texNRPrev: MTLTexture?
     private var scratch: UnsafeMutableRawPointer?
     private var scratchSize = 0
     public private(set) var lastFlowMillis: Double = 0
     private var generation = 0
 
+    /// Frame-rate multiplier: 1 = off, 2/4/8.
+    public var factor = 1
+    /// Temporal noise-reduction strength 0…1 (0 = off).
+    public var denoise: Float = 0
+
     private static let source = """
     #include <metal_stdlib>
     using namespace metal;
-    kernel void midpoint(texture2d<float, access::sample> a [[texture(0)]],
-                         texture2d<float, access::sample> b [[texture(1)]],
-                         texture2d<float, access::sample> flow [[texture(2)]],
-                         texture2d<float, access::write> out [[texture(3)]],
-                         uint2 gid [[thread_position_in_grid]]) {
+    struct Params { float t; float strength; float threshold; float pad; };
+
+    // Frame at fractional time t between a (t=0) and b (t=1), flow is a→b in flow-buffer pixels.
+    kernel void warp_t(texture2d<float, access::sample> a [[texture(0)]],
+                       texture2d<float, access::sample> b [[texture(1)]],
+                       texture2d<float, access::sample> flow [[texture(2)]],
+                       texture2d<float, access::write> out [[texture(3)]],
+                       constant Params& p [[buffer(0)]],
+                       uint2 gid [[thread_position_in_grid]]) {
         uint W = out.get_width(), H = out.get_height();
         if (gid.x >= W || gid.y >= H) return;
         constexpr sampler s(coord::normalized, filter::linear, address::clamp_to_edge);
         float2 uv = (float2(gid) + 0.5) / float2(W, H);
-        float2 f = flow.sample(s, uv).xy;                       // displacement in flow-buffer pixels
-        float2 fn = f / float2(flow.get_width(), flow.get_height());
-        float4 ca = a.sample(s, uv - 0.5 * fn);
-        float4 cb = b.sample(s, uv + 0.5 * fn);
-        out.write(0.5 * (ca + cb), gid);
+        float2 f = flow.sample(s, uv).xy / float2(flow.get_width(), flow.get_height());
+        float4 ca = a.sample(s, uv - p.t * f);
+        float4 cb = b.sample(s, uv + (1.0 - p.t) * f);
+        out.write(mix(ca, cb, p.t), gid);
+    }
+
+    // Temporal NR: blend current frame with the previous cleaned frame warped forward along the flow.
+    kernel void temporal_nr(texture2d<float, access::sample> cur [[texture(0)]],
+                            texture2d<float, access::sample> prevClean [[texture(1)]],
+                            texture2d<float, access::sample> flow [[texture(2)]],
+                            texture2d<float, access::write> out [[texture(3)]],
+                            constant Params& p [[buffer(0)]],
+                            uint2 gid [[thread_position_in_grid]]) {
+        uint W = out.get_width(), H = out.get_height();
+        if (gid.x >= W || gid.y >= H) return;
+        constexpr sampler s(coord::normalized, filter::linear, address::clamp_to_edge);
+        float2 uv = (float2(gid) + 0.5) / float2(W, H);
+        float2 f = flow.sample(s, uv).xy / float2(flow.get_width(), flow.get_height());
+        float4 c = cur.sample(s, uv);
+        float4 w = prevClean.sample(s, uv - f);                 // where this pixel came from in the previous frame
+        float3 d = abs(c.rgb - w.rgb);
+        float diff = max(d.r, max(d.g, d.b));
+        float k = p.strength * (1.0 - smoothstep(0.0, p.threshold, diff));   // trust history only where it matches
+        out.write(float4(mix(c.rgb, w.rgb, k), 1.0), gid);
     }
     """
 
     public init?() {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
               let lib = try? device.makeLibrary(source: Self.source, options: nil),
-              let fn = lib.makeFunction(name: "midpoint"),
-              let pipeline = try? device.makeComputePipelineState(function: fn) else { return nil }
-        self.device = device; self.queue = queue; self.pipeline = pipeline
+              let fw = lib.makeFunction(name: "warp_t"), let fn = lib.makeFunction(name: "temporal_nr"),
+              let wp = try? device.makeComputePipelineState(function: fw),
+              let np = try? device.makeComputePipelineState(function: fn) else { return nil }
+        self.device = device; self.queue = queue; warpPipeline = wp; nrPipeline = np
         warmUp()
     }
 
-    /// Vision's optical-flow model takes a few seconds to load on first use; do it off the critical path.
+    deinit { scratch?.deallocate() }
+
     private func warmUp() {
         work.async {
             let w = 256, h = 160
@@ -62,49 +98,70 @@ public final class MotionInterpolator: @unchecked Sendable {
         }
     }
 
-    deinit { scratch?.deallocate() }
-
     /// Drop pending state (e.g. when toggled off or the stream restarts).
     public func reset() {
-        work.async { self.prev = nil; self.generation += 1 }
+        work.async { self.prev = nil; self.texNRPrev = nil; self.generation += 1 }
     }
 
     /// Feed a real frame. `emit` receives frames to display, in order, on the work queue.
     public func push(_ image: CGImage, at time: TimeInterval, emit: @escaping @Sendable (CGImage) -> Void) {
         work.async {
             let gen = self.generation
-            guard let texB = self.upload(image, into: &self.texB) else { emit(image); return }
+            let factor = max(1, self.factor), nr = max(0, min(1, self.denoise))
+            guard factor > 1 || nr > 0 else { emit(image); return }
+            guard var texB = self.upload(image, into: &self.texB) else { emit(image); return }
+            var current = image
             guard let prev = self.prev, prev.image.width == image.width, prev.image.height == image.height else {
+                if nr > 0 { self.seedNR(from: texB) }
                 self.prev = (image, texB, time)
                 self.swapB()
+                if factor == 1 { emit(image) }
                 return
             }
-            let interval = max(0.01, time - prev.time)
-            emit(prev.image)                                    // real frame A, one frame late
             let t0 = CFAbsoluteTimeGetCurrent()
-            let mid = self.midpoint(a: prev.texture, aImage: prev.image, b: texB, bImage: image)
-            self.lastFlowMillis = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-            self.prev = (image, texB, time)
-            self.swapB()
-            guard let mid else { return }
-            let delay = max(0, interval / 2 - self.lastFlowMillis / 1000)
-            self.work.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, self.generation == gen else { return }
-                emit(mid)
+            guard let flow = self.opticalFlow(from: prev.image, to: image) else {
+                self.prev = (image, texB, time); self.swapB(); emit(image); return
             }
+            // 1. Temporal NR on the new frame (result replaces B for everything downstream).
+            if nr > 0, let cleaned = self.temporalNR(cur: texB, flow: flow, strength: nr), let cleanedImage = self.readback(cleaned) {
+                current = cleanedImage
+                if let t = self.upload(cleanedImage, into: &self.texB) { texB = t }
+            }
+            // 2. Motion: emit A now (one frame late), then the in-betweens on schedule.
+            if factor > 1 {
+                emit(prev.image)
+                let interval = max(0.01, time - prev.time)
+                var frames: [CGImage] = []
+                for k in 1 ..< factor {
+                    if let tex = self.warp(a: prev.texture, b: texB, flow: flow, t: Float(k) / Float(factor)), let img = self.readback(tex) { frames.append(img) }
+                }
+                self.lastFlowMillis = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+                for (i, f) in frames.enumerated() {
+                    let delay = max(0, interval * Double(i + 1) / Double(factor) - self.lastFlowMillis / 1000)
+                    self.work.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self, self.generation == gen else { return }
+                        emit(f)
+                    }
+                }
+            } else {
+                self.lastFlowMillis = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+                emit(current)
+            }
+            self.prev = (current, texB, time)
+            self.swapB()
         }
     }
 
-    /// texB becomes the new "A" texture; recycle the old one as the next upload target.
     private func swapB() { let old = texA; texA = texB; texB = old }
 
-    private func midpoint(a: MTLTexture, aImage: CGImage, b: MTLTexture, bImage: CGImage) -> CGImage? {
-        // 1. Optical flow A → B
-        let req = VNGenerateOpticalFlowRequest(targetedCGImage: bImage, options: [:])
+    // MARK: GPU stages
+
+    private func opticalFlow(from a: CGImage, to b: CGImage) -> MTLTexture? {
+        let req = VNGenerateOpticalFlowRequest(targetedCGImage: b, options: [:])
         req.computationAccuracy = .low
         req.outputPixelFormat = kCVPixelFormatType_TwoComponent32Float
-        let handler = VNImageRequestHandler(cgImage: aImage, options: [:])
-        guard (try? handler.perform([req])) != nil, let obs = req.results?.first as? VNPixelBufferObservation else { return nil }
+        guard (try? VNImageRequestHandler(cgImage: a, options: [:]).perform([req])) != nil,
+              let obs = req.results?.first as? VNPixelBufferObservation else { return nil }
         let pb = obs.pixelBuffer
         let fw = CVPixelBufferGetWidth(pb), fh = CVPixelBufferGetHeight(pb)
         if texFlow == nil || texFlow!.width != fw || texFlow!.height != fh {
@@ -118,29 +175,61 @@ public final class MotionInterpolator: @unchecked Sendable {
             texFlow.replace(region: MTLRegionMake2D(0, 0, fw, fh), mipmapLevel: 0, withBytes: base, bytesPerRow: CVPixelBufferGetBytesPerRow(pb))
         }
         CVPixelBufferUnlockBaseAddress(pb, .readOnly)
+        return texFlow
+    }
 
-        // 2. Warp both frames to the midpoint
-        let w = a.width, h = a.height
-        if texOut == nil || texOut!.width != w || texOut!.height != h {
+    private struct Params { var t: Float; var strength: Float; var threshold: Float; var pad: Float = 0 }
+
+    private func outputTexture(_ slot: inout MTLTexture?, w: Int, h: Int) -> MTLTexture? {
+        if slot == nil || slot!.width != w || slot!.height != h {
             let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
             d.usage = [.shaderWrite, .shaderRead]; d.storageMode = .managed
-            texOut = device.makeTexture(descriptor: d)
+            slot = device.makeTexture(descriptor: d)
         }
-        guard let texOut, let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return nil }
+        return slot
+    }
+
+    private func run(_ pipeline: MTLComputePipelineState, textures: [MTLTexture], out: MTLTexture, params: Params) -> Bool {
+        guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return false }
         enc.setComputePipelineState(pipeline)
-        enc.setTexture(a, index: 0); enc.setTexture(b, index: 1); enc.setTexture(texFlow, index: 2); enc.setTexture(texOut, index: 3)
+        for (i, t) in textures.enumerated() { enc.setTexture(t, index: i) }
+        enc.setTexture(out, index: textures.count)
+        var p = params
+        enc.setBytes(&p, length: MemoryLayout<Params>.stride, index: 0)
         let tg = MTLSize(width: 16, height: 16, depth: 1)
-        enc.dispatchThreadgroups(MTLSize(width: (w + 15) / 16, height: (h + 15) / 16, depth: 1), threadsPerThreadgroup: tg)
+        enc.dispatchThreadgroups(MTLSize(width: (out.width + 15) / 16, height: (out.height + 15) / 16, depth: 1), threadsPerThreadgroup: tg)
         enc.endEncoding()
-        if let blit = cb.makeBlitCommandEncoder() { blit.synchronize(resource: texOut); blit.endEncoding() }
+        if let blit = cb.makeBlitCommandEncoder() { blit.synchronize(resource: out); blit.endEncoding() }
         cb.commit()
         cb.waitUntilCompleted()
+        return true
+    }
 
-        // 3. Read back as CGImage
-        let bpr = w * 4
+    private func warp(a: MTLTexture, b: MTLTexture, flow: MTLTexture, t: Float) -> MTLTexture? {
+        guard let out = outputTexture(&texOut, w: a.width, h: a.height) else { return nil }
+        return run(warpPipeline, textures: [a, b, flow], out: out, params: Params(t: t, strength: 0, threshold: 0)) ? out : nil
+    }
+
+    private func seedNR(from tex: MTLTexture) {
+        guard let dst = outputTexture(&texNRPrev, w: tex.width, h: tex.height), let cb = queue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() else { return }
+        blit.copy(from: tex, to: dst); blit.endEncoding(); cb.commit(); cb.waitUntilCompleted()
+    }
+
+    private func temporalNR(cur: MTLTexture, flow: MTLTexture, strength: Float) -> MTLTexture? {
+        guard let prevClean = outputTexture(&texNRPrev, w: cur.width, h: cur.height), let out = outputTexture(&texNR, w: cur.width, h: cur.height) else { return nil }
+        // strength maps to how much history is kept; threshold is the RGB difference beyond which history is ignored
+        let ok = run(nrPipeline, textures: [cur, prevClean, flow], out: out, params: Params(t: 0, strength: 0.55 + 0.35 * strength, threshold: 0.10 + 0.10 * strength))
+        guard ok else { return nil }
+        // the cleaned frame becomes the history for the next one
+        if let cb = queue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() { blit.copy(from: out, to: prevClean); blit.endEncoding(); cb.commit(); cb.waitUntilCompleted() }
+        return out
+    }
+
+    private func readback(_ tex: MTLTexture) -> CGImage? {
+        let w = tex.width, h = tex.height, bpr = w * 4
         ensureScratch(bpr * h)
         guard let scratch else { return nil }
-        texOut.getBytes(scratch, bytesPerRow: bpr, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+        tex.getBytes(scratch, bytesPerRow: bpr, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
         guard let provider = CGDataProvider(data: Data(bytes: scratch, count: bpr * h) as CFData) else { return nil }
         return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bpr,
                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -152,7 +241,6 @@ public final class MotionInterpolator: @unchecked Sendable {
         if scratchSize < n { scratch?.deallocate(); scratch = UnsafeMutableRawPointer.allocate(byteCount: n, alignment: 16); scratchSize = n }
     }
 
-    /// CGImage → BGRA8 texture, reusing `slot` when the size matches.
     private func upload(_ image: CGImage, into slot: inout MTLTexture?) -> MTLTexture? {
         let w = image.width, h = image.height, bpr = w * 4
         if slot == nil || slot!.width != w || slot!.height != h {

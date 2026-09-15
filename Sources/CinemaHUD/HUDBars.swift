@@ -235,7 +235,8 @@ struct BottomStrip: View {
             HStack(spacing: 8) {
                 if let t = session.transport { Text(t.rawValue.uppercased()).font(Theme.label(9)).foregroundStyle(Theme.dim) }
                 Text(String(format: "%.0f FPS", session.fps)).font(Theme.label(9)).foregroundStyle(Theme.dim)
-                if session.smoothMotion { Text("×2").font(Theme.label(9)).foregroundStyle(Theme.accent) }
+                if session.motionFactor > 1 { Text("×\(session.motionFactor) +\(Int(1000.0 / max(1, session.sourceFPS)))ms").font(Theme.label(9)).foregroundStyle(Theme.accent) }
+                if session.denoise > 0 { Text(session.denoise > 0.6 ? "NR2" : "NR1").font(Theme.label(9)).foregroundStyle(Theme.accent) }
             }
             .padding(.trailing, 10)
         }
@@ -314,7 +315,12 @@ struct RightTools: View {
         VStack(spacing: 5) {
             EdgeButton(title: overlays.scope == .none ? "SCOPE" : overlays.scope.rawValue, active: overlays.scope != .none) { ov.scope = ov.scope.next }
             EdgeButton(title: "ENH", active: overlays.enhanced) { ov.enhanced.toggle() }
-            EdgeButton(title: "MOTION", active: session.smoothMotion) { session.smoothMotion.toggle() }
+            EdgeButton(title: session.motionFactor > 1 ? "×\(session.motionFactor)" : "MOTION", active: session.motionFactor > 1) {
+                session.motionFactor = [1: 2, 2: 4, 4: 8][session.motionFactor] ?? 1
+            }
+            EdgeButton(title: session.denoise > 0 ? (session.denoise > 0.6 ? "NR2" : "NR1") : "NR", active: session.denoise > 0) {
+                session.denoise = session.denoise == 0 ? 0.5 : (session.denoise > 0.6 ? 0 : 1)
+            }
             Spacer().frame(height: 6)
             EdgeButton(title: "AF", enabled: s.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
             EdgeButton(title: "AEL") { Task { await session.press(.aeLock) } }

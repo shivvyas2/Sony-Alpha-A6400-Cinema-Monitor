@@ -77,7 +77,14 @@ struct CinemaHUDApp: App {
                 Toggle("Settings Menu", isOn: $overlays.showMenu).keyboardShortcut("n", modifiers: [])
                 Divider()
                 Toggle("Enhanced Upscaling (MetalFX)", isOn: $overlays.enhanced).keyboardShortcut("e", modifiers: [])
-                Toggle("Smooth Motion (interpolated ×2, adds one frame of delay)", isOn: Binding(get: { session.smoothMotion }, set: { session.smoothMotion = $0 })).keyboardShortcut("m", modifiers: [])
+                Picker("Smooth Motion (adds one frame of delay)", selection: Binding(get: { session.motionFactor }, set: { session.motionFactor = $0 })) {
+                    Text("Off").tag(1); Text("×2 (30 fps)").tag(2); Text("×4 (60 fps)").tag(4); Text("×8 (120 fps)").tag(8)
+                }
+                Button("Cycle Smooth Motion") { session.motionFactor = [1: 2, 2: 4, 4: 8][session.motionFactor] ?? 1 }.keyboardShortcut("m", modifiers: [])
+                Picker("Live Denoise", selection: Binding(get: { session.denoise }, set: { session.denoise = $0 })) {
+                    Text("Off").tag(Float(0)); Text("NR1 (light)").tag(Float(0.5)); Text("NR2 (strong)").tag(Float(1))
+                }
+                Button("Cycle Live Denoise") { session.denoise = session.denoise == 0 ? 0.5 : (session.denoise > 0.6 ? 0 : 1) }.keyboardShortcut("d", modifiers: [])
                 Divider()
                 Picker("Project Frame Rate", selection: $overlays.projectFPS) {
                     ForEach([24, 25, 30, 48, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
@@ -216,13 +223,16 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("CinemaHUD.devReport"))) { _ in
-            print(String(format: "report: display=%.1f fps source=%.1f fps motion=%@ size=%.0fx%.0f", session.fps, session.sourceFPS, session.smoothMotion ? "on" : "off", session.frameSize.width, session.frameSize.height))
+            print(String(format: "report: display=%.1f fps source=%.1f fps motion=x%d nr=%.1f size=%.0fx%.0f", session.fps, session.sourceFPS, session.motionFactor, session.denoise, session.frameSize.width, session.frameSize.height))
             fflush(stdout)
         }
         .task {
             // Dev convenience: CINEMAHUD_ADDRESS=127.0.0.1:8080 auto-connects (e.g. to tools/camerasim.py).
             DevHooks.apply(to: overlays)
-            if ProcessInfo.processInfo.environment["CINEMAHUD_OVERLAYS"]?.contains("motion") == true { session.smoothMotion = true }
+            if let ov = ProcessInfo.processInfo.environment["CINEMAHUD_OVERLAYS"] {
+                if ov.contains("motion8") { session.motionFactor = 8 } else if ov.contains("motion4") { session.motionFactor = 4 } else if ov.contains("motion") { session.motionFactor = 2 }
+                if ov.contains("nr2") { session.denoise = 1 } else if ov.contains("nr") { session.denoise = 0.5 }
+            }
             if let addr = ProcessInfo.processInfo.environment["CINEMAHUD_ADDRESS"], session.phase == .idle {
                 await session.connect(toAddress: addr)
             } else if ProcessInfo.processInfo.environment["CINEMAHUD_USB"] == "1", session.phase == .idle {
