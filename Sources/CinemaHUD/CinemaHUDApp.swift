@@ -54,7 +54,15 @@ struct CinemaHUDApp: App {
                 Toggle("Center Marker", isOn: $overlays.centerMarker).keyboardShortcut("c", modifiers: [])
                 Toggle("Focus Peaking", isOn: $overlays.peaking).keyboardShortcut("p", modifiers: [])
                 Toggle("Zebras", isOn: $overlays.zebra).keyboardShortcut("z", modifiers: [])
+                Toggle("False Color", isOn: $overlays.falseColor).keyboardShortcut("v", modifiers: [])
+                Toggle("Waveform Scope", isOn: $overlays.waveform).keyboardShortcut("w", modifiers: [])
+                Divider()
                 Toggle("Enhanced Upscaling (MetalFX)", isOn: $overlays.enhanced).keyboardShortcut("e", modifiers: [])
+                Toggle("Smooth Motion (interpolated ×2, adds one frame of delay)", isOn: Binding(get: { session.smoothMotion }, set: { session.smoothMotion = $0 })).keyboardShortcut("m", modifiers: [])
+                Divider()
+                Picker("Project Frame Rate", selection: $overlays.projectFPS) {
+                    ForEach([24, 25, 30, 48, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
+                }
                 Toggle("Hide HUD", isOn: $overlays.hideHUD).keyboardShortcut("h", modifiers: [])
             }
         }
@@ -111,6 +119,10 @@ final class OverlaySettings {
     var crop: CropRatio = .native
     /// MetalFX spatial upscaling of the live view to the display resolution.
     var enhanced = false
+    var falseColor = false
+    var waveform = false
+    /// Project frame rate, used for shutter angle and the timecode frame counter.
+    var projectFPS = 24
 }
 
 struct ContentView: View {
@@ -126,9 +138,14 @@ struct ContentView: View {
                 ConnectView()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .init("CinemaHUD.devReport"))) { _ in
+            print(String(format: "report: display=%.1f fps source=%.1f fps motion=%@ size=%.0fx%.0f", session.fps, session.sourceFPS, session.smoothMotion ? "on" : "off", session.frameSize.width, session.frameSize.height))
+            fflush(stdout)
+        }
         .task {
             // Dev convenience: CINEMAHUD_ADDRESS=127.0.0.1:8080 auto-connects (e.g. to tools/camerasim.py).
             DevHooks.apply(to: overlays)
+            if ProcessInfo.processInfo.environment["CINEMAHUD_OVERLAYS"]?.contains("motion") == true { session.smoothMotion = true }
             if let addr = ProcessInfo.processInfo.environment["CINEMAHUD_ADDRESS"], session.phase == .idle {
                 await session.connect(toAddress: addr)
             } else if ProcessInfo.processInfo.environment["CINEMAHUD_USB"] == "1", session.phase == .idle {
@@ -173,6 +190,9 @@ enum DevHooks {
             case "guides": overlays.frameGuides = true
             case "hidehud": overlays.hideHUD = true
             case "enhanced": overlays.enhanced = true
+            case "false": overlays.falseColor = true
+            case "waveform": overlays.waveform = true
+            case "motion": NotificationCenter.default.post(name: .init("CinemaHUD.devMotion"), object: nil)
             default:
                 if tok.hasPrefix("crop=") {
                     let v = tok.dropFirst(5)
@@ -184,14 +204,16 @@ enum DevHooks {
 
     static func scheduleSnapshot() {
         guard let path = env["CINEMAHUD_SNAPSHOT"] else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+        let delay = Double(env["CINEMAHUD_SNAPSHOT_DELAY"] ?? "") ?? 4.5
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard let win = NSApp.windows.first, let view = win.contentView,
                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
             view.cacheDisplay(in: view.bounds, to: rep)
             if let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: URL(fileURLWithPath: path))
             }
-            if env["CINEMAHUD_QUIT"] == "1" { NSApp.terminate(nil) }
+            NotificationCenter.default.post(name: .init("CinemaHUD.devReport"), object: nil)
+            if env["CINEMAHUD_QUIT"] == "1" { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) } }
         }
     }
 }

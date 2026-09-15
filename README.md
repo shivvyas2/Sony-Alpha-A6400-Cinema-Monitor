@@ -46,9 +46,13 @@ click Discover; allow it.
 | Take a still | SHOT button | Return |
 | Start / stop movie recording | REC button | R |
 | Set AF point | click on the image | |
-| Thirds grid / 2.39 guide shading / center marker | GRID, GUIDE buttons | G, F, C |
+| Frame lines (thirds + action-safe corners) / 2.39 guide shading / center marker | FRAME, GUIDE buttons | G, F, C |
 | Focus peaking / zebras | PEAK, ZEBRA buttons | P, Z |
+| False color exposure map | FALSE button | V |
+| Luma waveform scope | SCOPE button | W |
 | Enhanced upscaling (MetalFX) | ENHANCE button | E |
+| Smooth motion (interpolated ×2) | MOTION button | M |
+| Project frame rate (shutter angle, timecode) | FPS readout | |
 | Aspect crop: native, 16:9, 1.85, 2.00, 2.35, 2.39 | crop button cycles | 1 – 6 |
 | Hide the HUD | | H |
 | Full screen | View › Enter Full Screen | ⌃⌘F |
@@ -59,6 +63,19 @@ is cropped to that ratio and fills a 21:9 display edge to edge instead of letter
 Readouts are dimmed when the camera does not currently allow that change (for example, nothing
 is adjustable in Intelligent Auto, and shutter speed cannot be set in Aperture priority).
 
+### The HUD
+
+The layout follows a cinema camera body. The top strip shows recording state and duration,
+free-running timecode with frames at the project frame rate, a take counter, camera and mode,
+then media remaining and battery. The bottom band is the readout row: FPS (project), SHUTTER as
+a shutter angle with the speed underneath, EI, IRIS, WB, EV and FOCUS. Click a readout to pick a
+value or scroll over it to step. While recording, the frame gets a red border and the timecode
+turns red. Color is used only for state: red recording, green confirmed, amber warnings.
+
+**False color** maps exposure to bands: purple and blue for crushed shadows, green for mid grey
+(38–46 IRE), pink for skin (52–58 IRE), yellow and orange approaching clip, red for clipped.
+**Scope** shows a luma waveform of the current frame.
+
 ### Enhanced mode
 
 **ENHANCE** (E) renders the live view through Apple's MetalFX spatial upscaler on the GPU,
@@ -67,6 +84,15 @@ latency. On GPUs without MetalFX, or when the window is smaller than the feed, i
 Lanczos resampling. The top bar shows the output resolution and which path is active (MFX or
 LANCZOS). It is a nicer picture, not a truer one: the camera still sends 1024×680, so it will
 not reveal detail or focus the sensor feed does not contain. Frame rate is unchanged.
+
+### Smooth motion
+
+**MOTION** (M) doubles the displayed frame rate, 15 → 30 fps over USB, by synthesizing the frame
+between each pair of real frames: Vision computes dense optical flow between them and a Metal
+kernel warps both toward the midpoint. Because the midpoint needs the following frame, the picture
+is shown one input frame later (about 66 ms at 15 fps); the top bar shows the added delay. Motion
+looks smoother, but nothing new is captured. Turn it off when you need the lowest latency, such as
+pulling focus.
 
 ### Live view quality and frame rate
 

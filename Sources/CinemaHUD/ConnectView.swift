@@ -8,14 +8,14 @@ struct ConnectView: View {
 
     var body: some View {
         VStack(spacing: 28) {
-            VStack(spacing: 6) {
-                Text("CINEMA HUD").font(Theme.mono(28, weight: .bold)).tracking(8).foregroundStyle(Theme.amber)
-                Text("SONY α6400 REMOTE MONITOR").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.dim)
+            VStack(spacing: 8) {
+                Text("CINEMA HUD").font(.system(size: 30, weight: .bold)).tracking(10).foregroundStyle(Theme.text)
+                Text("Remote monitor for the Sony α6400").font(.system(size: 13)).foregroundStyle(Theme.dim)
             }
 
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("USB").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.amber)
+                    Text("USB").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.text)
                     step(1, "On the camera: MENU → Setup → USB Connection → PC Remote.")
                     step(2, "Connect the USB cable, then click Connect USB.")
                     Button {
@@ -23,7 +23,7 @@ struct ConnectView: View {
                     } label: {
                         Label("Connect USB", systemImage: "cable.connector").frame(width: 150)
                     }
-                    .buttonStyle(.borderedProminent).tint(Theme.amber).foregroundStyle(.black)
+                    .buttonStyle(.borderedProminent).tint(Theme.selection).foregroundStyle(.black)
                     .disabled(isBusy)
                     Text("Lowest latency. Stills save to ~/Pictures/CinemaHUD when the camera's save destination is PC.")
                         .font(.system(size: 11)).foregroundStyle(Theme.dim)
@@ -33,7 +33,7 @@ struct ConnectView: View {
                 .hudPanel()
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("WI-FI").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.amber)
+                    Text("WI-FI").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.text)
                     step(1, "On the camera: MENU → Network → Ctrl w/ Smartphone → On, then Connection.")
                     step(2, "On this Mac: join the Wi-Fi named DIRECT-xxxx:ILCE-6400.")
                     HStack(spacing: 8) {
@@ -77,7 +77,7 @@ struct ConnectView: View {
         case .idle: Text("Not connected").foregroundStyle(Theme.dim)
         case .discovering: HStack { ProgressView().controlSize(.small); Text("Searching for camera…") }.foregroundStyle(Theme.dim)
         case .connecting(let name): HStack { ProgressView().controlSize(.small); Text("Connecting to \(name)…") }.foregroundStyle(Theme.dim)
-        case .live: Text("Connected").foregroundStyle(Theme.focusOK)
+        case .live: Text("Connected").foregroundStyle(Theme.ok)
         case .failed(let msg): Text(msg).foregroundStyle(Theme.rec).multilineTextAlignment(.center).frame(maxWidth: 520)
         }
     }
@@ -85,7 +85,7 @@ struct ConnectView: View {
     private func step(_ n: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(n)").font(Theme.mono(12, weight: .bold)).foregroundStyle(.black)
-                .frame(width: 20, height: 20).background(Theme.amber, in: Circle())
+                .frame(width: 20, height: 20).background(Theme.selection, in: Circle())
             Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.85))
         }
     }

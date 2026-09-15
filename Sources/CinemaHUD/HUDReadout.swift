@@ -1,37 +1,40 @@
 import SwiftUI
 
-/// One big cinema-style readout: small label on top, big value, click for a picker, scroll to step.
+/// One camera-body readout: tracked label above, large tabular value, optional sub-value.
+/// Click for a picker, scroll to step. Dimmed when the camera does not allow the change.
 struct HUDReadout: View {
     let label: String
     let value: String
-    var unit: String = ""
+    var sub: String = ""
     var candidates: [String] = []
     var enabled: Bool = true
-    var accent: Color = .white
+    var accent: Color = Theme.text
+    var width: CGFloat = 104
     var format: (String) -> String = { $0 }
     var onSelect: (String) -> Void = { _ in }
     var onStep: (Int) -> Void = { _ in }
 
     @State private var showPicker = false
+    @State private var hover = false
 
     var body: some View {
         ScrollStepper(onStep: { if enabled { onStep($0) } }) {
             Button {
                 if enabled && !candidates.isEmpty { showPicker.toggle() }
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label).font(Theme.label(10)).tracking(2).foregroundStyle(Theme.dim)
-                    HStack(alignment: .lastTextBaseline, spacing: 3) {
-                        Text(value).font(Theme.mono(24, weight: .semibold)).foregroundStyle(enabled ? accent : Theme.dim)
-                        if !unit.isEmpty { Text(unit).font(Theme.mono(12)).foregroundStyle(Theme.dim) }
-                    }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label).font(Theme.label()).tracking(1.6).foregroundStyle(Theme.dim)
+                    Text(value).font(Theme.value()).foregroundStyle(enabled ? accent : Theme.faint)
+                        .lineLimit(1).minimumScaleFactor(0.6)
+                    Text(sub.isEmpty ? " " : sub).font(Theme.mono(10)).foregroundStyle(Theme.dim)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .frame(minWidth: 96, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .frame(width: width, alignment: .leading)
+                .background(hover && enabled ? Color.white.opacity(0.06) : .clear)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .opacity(enabled ? 1 : 0.45)
+            .onHover { hover = $0 }
             .popover(isPresented: $showPicker, arrowEdge: .top) {
                 CandidatePicker(title: label, current: value, candidates: candidates, format: format) { v in
                     showPicker = false
@@ -51,31 +54,30 @@ struct CandidatePicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(Theme.label(10)).tracking(2).foregroundStyle(Theme.dim).padding(.horizontal, 12).padding(.vertical, 8)
-            Divider()
+            Text(title).font(Theme.label()).tracking(1.6).foregroundStyle(Theme.dim).padding(.horizontal, 12).padding(.vertical, 8)
+            Divider().overlay(Theme.panelLine)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(candidates, id: \.self) { c in
+                            let selected = format(c) == current
                             Button { onPick(c) } label: {
-                                HStack {
-                                    Text(format(c)).font(Theme.mono(14, weight: c == current ? .bold : .regular))
-                                    Spacer()
-                                    if c == current { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
-                                }
-                                .foregroundStyle(c == current ? Theme.amber : .white)
-                                .padding(.horizontal, 12).padding(.vertical, 5)
-                                .contentShape(Rectangle())
+                                Text(format(c)).font(Theme.mono(14, weight: selected ? .semibold : .regular))
+                                    .foregroundStyle(selected ? Color.black : Theme.text)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12).padding(.vertical, 5)
+                                    .background(selected ? Theme.selection : .clear)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .id(c)
                         }
                     }
                 }
-                .frame(width: 160, height: min(320, CGFloat(candidates.count) * 26 + 8))
-                .onAppear { proxy.scrollTo(current, anchor: .center) }
+                .frame(width: 168, height: min(320, CGFloat(candidates.count) * 26 + 8))
+                .onAppear { if let c = candidates.first(where: { format($0) == current }) { proxy.scrollTo(c, anchor: .center) } }
             }
         }
-        .background(Color.black.opacity(0.92))
+        .background(Theme.panel)
     }
 }

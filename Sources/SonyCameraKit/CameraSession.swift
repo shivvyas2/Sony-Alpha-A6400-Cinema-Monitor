@@ -23,6 +23,12 @@ public final class CameraSession {
     public private(set) var frame: CGImage?
     public private(set) var frameSize: CGSize = .zero
     public private(set) var fps: Double = 0
+    /// Frames per second actually arriving from the camera (before any interpolation).
+    public private(set) var sourceFPS: Double = 0
+    /// Number of recordings started this session.
+    public private(set) var takes = 0
+    /// Synthesize a midpoint frame between real frames (doubles displayed fps, adds one frame of delay).
+    public var smoothMotion = false { didSet { if !smoothMotion { interpolator?.reset() } } }
     public private(set) var lastError: String?
     public private(set) var cameraName: String = ""
     public private(set) var transport: CameraTransportKind?
@@ -31,6 +37,11 @@ public final class CameraSession {
     private var backend: CameraBackend?
     private var eventTask: Task<Void, Never>?
     private var liveviewTask: Task<Void, Never>?
+    @ObservationIgnored private var interpolator: MotionInterpolator? = MotionInterpolator()
+    @ObservationIgnored private var displayCount = 0
+    @ObservationIgnored private var displayWindow = Date()
+    @ObservationIgnored private var sourceCount = 0
+    @ObservationIgnored private var sourceWindow = Date()
 
     public init() {}
 
@@ -105,7 +116,9 @@ public final class CameraSession {
             do {
                 for try await s in backend.stateUpdates() {
                     guard let self, !Task.isCancelled else { return }
+                    let wasRecording = self.state.isRecording
                     self.state = s
+                    if !wasRecording && s.isRecording { self.takes += 1 }
                 }
                 guard let self, !Task.isCancelled else { return }
                 await self.reconnect(after: nil)
@@ -172,17 +185,29 @@ public final class CameraSession {
             }
             cont.onTermination = { _ in t.cancel() }
         }
-        var count = 0
-        var window = Date()
+        interpolator?.reset()
         for try await img in decoded {
             if Task.isCancelled { break }
-            frame = img
-            frameSize = CGSize(width: img.width, height: img.height)
-            count += 1
-            let elapsed = Date().timeIntervalSince(window)
-            if elapsed >= 1 { fps = Double(count) / elapsed; count = 0; window = Date() }
+            sourceCount += 1
+            let elapsed = Date().timeIntervalSince(sourceWindow)
+            if elapsed >= 1 { sourceFPS = Double(sourceCount) / elapsed; sourceCount = 0; sourceWindow = Date() }
+            if smoothMotion, let interpolator {
+                interpolator.push(img, at: CFAbsoluteTimeGetCurrent()) { out in
+                    Task { @MainActor [weak self] in self?.display(out) }
+                }
+            } else {
+                display(img)
+            }
         }
         throw CancellationError()
+    }
+
+    private func display(_ img: CGImage) {
+        frame = img
+        frameSize = CGSize(width: img.width, height: img.height)
+        displayCount += 1
+        let elapsed = Date().timeIntervalSince(displayWindow)
+        if elapsed >= 1 { fps = Double(displayCount) / elapsed; displayCount = 0; displayWindow = Date() }
     }
 
     nonisolated static func decodeJPEG(_ data: Data) -> CGImage? {
