@@ -18,7 +18,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 echo -n "APPL????" > "$APP/Contents/PkgInfo"
-python3 scripts/make-icon.py "$APP/Contents/Resources/AppIcon.icns"
+if [ -f design/icon/AppIcon.icns ]; then cp design/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"; else python3 scripts/make-icon.py "$APP/Contents/Resources/AppIcon.icns"; fi
 
 echo "▸ codesign (ad-hoc)"
 codesign --force --deep --sign - --timestamp=none "$APP"

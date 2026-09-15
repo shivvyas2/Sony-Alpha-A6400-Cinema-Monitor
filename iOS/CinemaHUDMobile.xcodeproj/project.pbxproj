@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		595A7F5B49E588D0C592BA67 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D245915048E53527239CF111 /* Assets.xcassets */; };
 		66C5149FAD7BC1DC4CBC3DDC /* CinemaHUDMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9138B69615F436135B1CFF /* CinemaHUDMobileApp.swift */; };
 		DE5D0171802F42C825CF6FAD /* CinemaUI in Frameworks */ = {isa = PBXBuildFile; productRef = E91C14268287C803D21FFF8C /* CinemaUI */; };
 		FE83CFDDE1AEA482C8E457D2 /* SonyCameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 734B44E2A88CD6260B138F92 /* SonyCameraKit */; };
@@ -16,6 +17,7 @@
 		21E8AD86E98719F4EFE0F2A2 /* CinemaHUDMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CinemaHUDMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F9138B69615F436135B1CFF /* CinemaHUDMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinemaHUDMobileApp.swift; sourceTree = "<group>"; };
 		50F4D490B1F41B3E2DEB50D7 /* Cinema */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Cinema; path = ..; sourceTree = SOURCE_ROOT; };
+		D245915048E53527239CF111 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F24C0C1FA62B3B908A7BCF48 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -35,6 +37,7 @@
 		06B31A04521F3A00CFE52A59 /* CinemaHUDMobile */ = {
 			isa = PBXGroup;
 			children = (
+				D245915048E53527239CF111 /* Assets.xcassets */,
 				2F9138B69615F436135B1CFF /* CinemaHUDMobileApp.swift */,
 				F24C0C1FA62B3B908A7BCF48 /* Info.plist */,
 			);
@@ -74,6 +77,7 @@
 			buildConfigurationList = 8128C01AA571826EA6E2DEA3 /* Build configuration list for PBXNativeTarget "CinemaHUDMobile" */;
 			buildPhases = (
 				3A4549DFA8E39629295A236D /* Sources */,
+				6BA9F14858E35473209C053F /* Resources */,
 				F250A840C2850C76F470AAC1 /* Frameworks */,
 			);
 			buildRules = (
@@ -124,6 +128,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		6BA9F14858E35473209C053F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				595A7F5B49E588D0C592BA67 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		3A4549DFA8E39629295A236D /* Sources */ = {
