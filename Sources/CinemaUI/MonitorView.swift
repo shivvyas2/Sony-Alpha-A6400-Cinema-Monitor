@@ -46,6 +46,7 @@ public struct MonitorView: View {
         .onChange(of: overlays.customLUTName) { _, _ in updateLUT(); reprocess(session.frame) }
         .onChange(of: overlays.rotation) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.feedColorSpace) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.mist) { _, _ in reprocess(session.frame) }
         .onAppear { updateLUT() }
     }
 
@@ -112,16 +113,16 @@ public struct MonitorView: View {
         let source = frame.matchedToWorkingSpace(from: overlays.feedColorSpace.cgColorSpace) ?? frame
         let p = processor
         processed = p.pipeline(source, peaking: overlays.peaking, zebra: overlays.zebra, zebraLevel: overlays.zebraLevel,
-                               falseColor: overlays.falseColor, rotation: overlays.rotation, peakingColor: overlays.peakingColor.rgb)
+                               falseColor: overlays.falseColor, rotation: overlays.rotation, peakingColor: overlays.peakingColor.rgb, mist: overlays.mist)
         if ProcessInfo.processInfo.environment["CINEMAHUD_TRACE"] == "1" { NSLog("trace: frame %@ -> processed %@ lut=%d", "\(frame.extent)", "\(processed?.extent ?? .zero)", p.lutCube != nil ? 1 : 0) }
         if overlays.assist {
             // Measure the colour-interpreted source (before LUT and effects) in display orientation.
             let rotated = overlays.rotation == 0 ? source : source.oriented(overlays.rotation == 90 ? .right : (overlays.rotation == 270 ? .left : .down))
             let sensorAF = session.focusCheckPoint ?? session.state.touchAFPoint.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
             let af = sensorAF.map { AssistController.displayPoint($0, rotation: overlays.rotation) }
-            let (st, prof, fps, mode) = (session.state, overlays.profile, overlays.projectFPS, overlays.shootingMode)
+            let (st, prof, fps, mode, mist) = (session.state, overlays.profile, overlays.projectFPS, overlays.shootingMode, overlays.mist)
             let ctl = assist
-            analyzer.analyze(rotated, afPoint: af) { m in ctl.ingest(measurements: m, state: st, profile: prof, projectFPS: fps, shootingMode: mode) }
+            analyzer.analyze(rotated, afPoint: af) { m in ctl.ingest(measurements: m, state: st, profile: prof, projectFPS: fps, shootingMode: mode, mist: mist) }
         }
         let kind = overlays.scope
         guard kind != .none else { scope = nil; return }

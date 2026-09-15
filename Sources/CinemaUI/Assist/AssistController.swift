@@ -17,6 +17,10 @@ public final class AssistController {
     private var lastModelCall = Date.distantPast
     private var generation = 0
     private var lastNonEmpty = Date.distantPast
+    private var lookFirstShown: [String: Date] = [:]
+    private var lookDone: Set<String> = []
+    /// A look suggestion stays this long, then leaves for the session unless the operator applies it.
+    public static let lookDwell: TimeInterval = 20
     public static let fadeAfter: TimeInterval = 6
     public static let modelInterval: TimeInterval = 1.5
 
@@ -33,9 +37,15 @@ public final class AssistController {
 
     public func fix(for id: String) -> Fix? { findings.first { $0.id == id }?.fix }
 
-    public func ingest(measurements m: SceneMeasurements, state: CameraState, profile: PictureProfile, projectFPS: Int, shootingMode: ShootingMode) {
-        let raw = AssistRules.findings(m, state: state, profile: profile, projectFPS: projectFPS, shootingMode: shootingMode)
+    public func ingest(measurements m: SceneMeasurements, state: CameraState, profile: PictureProfile, projectFPS: Int, shootingMode: ShootingMode, mist: Double = 0) {
+        let raw = AssistRules.findings(m, state: state, profile: profile, projectFPS: projectFPS, shootingMode: shootingMode, mist: mist)
+            .filter { $0.kind != .look || !lookDone.contains($0.id) }
         findings = debouncer.update(with: raw)
+        for f in findings where f.kind == .look {
+            let first = lookFirstShown[f.id] ?? Date()
+            lookFirstShown[f.id] = first
+            if Date().timeIntervalSince(first) > Self.lookDwell { lookDone.insert(f.id) }
+        }
         if case .touchAF(let x, let y)? = findings.first(where: { $0.id == "focus-missed" })?.fix?.command {
             pendingAF = CGPoint(x: x, y: y)
         } else { pendingAF = nil }
@@ -67,8 +77,9 @@ public final class AssistController {
     /// Runs the finding's fix through the session and shows APPLIED briefly. `rotation` is the
     /// display rotation, so a focus point measured on the rotated picture reaches the camera in
     /// sensor coordinates, the same way a tap on the picture does.
-    public func apply(_ id: String, session: CameraSession, rotation: Int = 0) {
+    public func apply(_ id: String, session: CameraSession, rotation: Int = 0, monitor: OverlaySettings? = nil) {
         guard let fix = fix(for: id) else { return }
+        if findings.first(where: { $0.id == id })?.kind == .look { lookDone.insert(id) }
         Task {
             switch fix.command {
             case .setISO(let v): await session.setISO(v)
@@ -78,6 +89,8 @@ public final class AssistController {
                 let p = Self.sensorPoint(CGPoint(x: x, y: y), rotation: rotation)
                 await session.touchAF(x: p.x, y: p.y); pendingAF = nil
             case .autofocus: await session.autofocus()
+            case .setFNumber(let v): await session.setFNumber(v)
+            case .monitorMist(let level): monitor?.mist = level
             }
             applied = id
             try? await Task.sleep(for: .seconds(1.5))

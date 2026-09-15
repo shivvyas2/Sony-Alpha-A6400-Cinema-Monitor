@@ -27,7 +27,7 @@ public enum AssistRules {
     }
 
     public static func findings(_ m: SceneMeasurements, state s: CameraState, profile: PictureProfile,
-                                projectFPS: Int, shootingMode: ShootingMode) -> [Finding] {
+                                projectFPS: Int, shootingMode: ShootingMode, mist: Double = 0) -> [Finding] {
         var out: [Finding] = []
         let face = m.faces.first
         var faceFinding = false
@@ -97,6 +97,22 @@ public enum AssistRules {
                 out.append(Finding(id: "headroom", kind: .framing, severity: .info, fact: "SUBJECT LOW IN FRAME",
                                    detail: "The face sits in the lower third with empty space above it."))
             }
+        }
+        // Look: only when nothing is wrong, in video, with a person in frame. Suggestions toward a
+        // softer, more cinematic image; the mist one is a monitor-side preview, not a camera change.
+        if shootingMode == .video, let face, !out.contains(where: { $0.severity == .warn }) {
+            if let cur = s.fNumber, let f = Double(cur), f >= 5.6, s.supports("setFNumber"),
+               let widest = s.fNumberCandidates.compactMap({ c in Double(c).map { (c, $0) } }).min(by: { $0.1 < $1.1 }), widest.1 < f {
+                out.append(Finding(id: "dof", kind: .look, severity: .info, fact: "OPEN UP FOR SOFT BACKGROUND",
+                                   detail: String(format: "Iris F%@ with a person in frame keeps the background sharp; a wider iris gives shallow, cinematic depth of field.", cur),
+                                   fix: Fix(label: "F\(cur) → F\(widest.0)", command: .setFNumber(widest.0))))
+            }
+            if mist == 0 {
+                out.append(Finding(id: "mist", kind: .look, severity: .info, fact: "TRY MIST FOR A SOFTER LOOK",
+                                   detail: "The picture is clean and sharp; the monitor's mist look adds halation around highlights and softens skin, as a diffusion filter would.",
+                                   fix: Fix(label: "MIST ON", command: .monitorMist(0.5))))
+            }
+            _ = face
         }
         return Array(out.prefix(maxFindings))
     }

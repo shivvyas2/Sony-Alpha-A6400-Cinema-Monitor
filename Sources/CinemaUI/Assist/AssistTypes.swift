@@ -23,7 +23,7 @@ public struct SceneMeasurements: Sendable, Equatable {
     public init() {}
 }
 
-public enum FindingKind: String, Sendable { case exposure, focus, framing, settings }
+public enum FindingKind: String, Sendable { case exposure, focus, framing, settings, look }
 public enum Severity: Sendable, Equatable { case info, warn }
 
 /// A camera change the operator can apply with one tap. Built only by `AssistRules`.
@@ -34,6 +34,8 @@ public struct Fix: Sendable, Equatable {
         case setShutterSpeed(String)
         case touchAF(x: Double, y: Double)
         case autofocus
+        case setFNumber(String)
+        case monitorMist(Double)      // a monitor-side look, not a camera change
     }
     public var label: String      // "EI 800 → 1600", "AF ON FACE", "1/50 → 1/48"
     public var command: Command

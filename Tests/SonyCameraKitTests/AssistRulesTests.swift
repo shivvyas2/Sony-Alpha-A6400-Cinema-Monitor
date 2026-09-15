@@ -96,6 +96,22 @@ final class AssistRulesTests: XCTestCase {
         low.horizonDegrees = 0.5
         XCTAssertEqual(findings(low, manualState()).first { $0.id == "headroom" }?.fact, "SUBJECT LOW IN FRAME")
     }
+    func testLookSuggestionsOnlyWhenTheShotIsClean() throws {
+        var s = manualState(); s.fNumber = "5.6"; s.fNumberCandidates = ["2.8", "4.0", "5.6", "8.0"]; s.availableAPIs.insert("setFNumber")
+        let clean = findings(face(luma: 55), s)
+        XCTAssertEqual(clean.map(\.id), ["dof", "mist"])
+        XCTAssertEqual(clean[0].fix, Fix(label: "F5.6 → F2.8", command: .setFNumber("2.8")))
+        XCTAssertEqual(clean[1].fix, Fix(label: "MIST ON", command: .monitorMist(0.5)))
+        XCTAssertEqual(clean[0].kind, .look)
+        // Mist already on: no mist nudge. Iris already wide: no iris nudge.
+        XCTAssertEqual(AssistRules.findings(face(luma: 55), state: s, profile: .standard, projectFPS: 24, shootingMode: .video, mist: 0.5).map(\.id), ["dof"])
+        var wide = s; wide.fNumber = "2.8"
+        XCTAssertEqual(findings(face(luma: 55), wide).map(\.id), ["mist"])
+        // A warning silences the look suggestions; so does photo mode or an empty frame.
+        XCTAssertFalse(findings(face(luma: 27.5), s).contains { $0.kind == .look })
+        XCTAssertFalse(findings(face(luma: 55), s, mode: .photo).contains { $0.kind == .look })
+        XCTAssertFalse(findings(SceneMeasurements(), s).contains { $0.kind == .look })
+    }
     func testOrderAndCap() {
         var s = manualState(); s.focusStatus = "Failed"; s.shutterSpeed = "1/500"
         var m = face(luma: 27.5, sharpness: 20, rect: CGRect(x: 0.4, y: 0.0, width: 0.2, height: 0.3))

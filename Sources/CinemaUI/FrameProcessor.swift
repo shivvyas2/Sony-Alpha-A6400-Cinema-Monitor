@@ -34,13 +34,15 @@ final class FrameProcessor: @unchecked Sendable {
     /// GPU pipeline: LUT → (false colour, zebra, peaking) → rotation, as a lazy CIImage that the Metal
     /// renderer draws directly. Nothing is read back to the CPU.
     func pipeline(_ image: CIImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false, rotation: Int = 0, effects: Bool = true,
-                  peakingColor: (Double, Double, Double) = (1, 0.15, 0.1)) -> CIImage {
+                  peakingColor: (Double, Double, Double) = (1, 0.15, 0.1), mist: Double = 0) -> CIImage {
         var src = image
         if let lutFilter {
             lutFilter.setValue(src, forKey: kCIInputImageKey)
             if let o = lutFilter.outputImage { src = o }
         }
         var out = src
+        // The mist look is display-only and sits under the exposure tools, which keep reading `src`.
+        if mist > 0 { out = applyMist(to: out, strength: mist) }
         if effects {
             if falseColor { out = applyFalseColor(to: out) }
             if zebra { out = applyZebra(to: out, source: src, level: zebraLevel) }
@@ -54,10 +56,25 @@ final class FrameProcessor: @unchecked Sendable {
     }
 
     /// CPU-side result of the pipeline (used by tests and tethered saving), not by the live display.
-    func process(_ image: CGImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false) -> CGImage? {
-        guard peaking || zebra || falseColor || lutFilter != nil else { return image }
-        let out = pipeline(CIImage(cgImage: image), peaking: peaking, zebra: zebra, zebraLevel: zebraLevel, falseColor: falseColor)
+    func process(_ image: CGImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false, mist: Double = 0) -> CGImage? {
+        guard peaking || zebra || falseColor || mist > 0 || lutFilter != nil else { return image }
+        let out = pipeline(CIImage(cgImage: image), peaking: peaking, zebra: zebra, zebraLevel: zebraLevel, falseColor: falseColor, mist: mist)
         return context.createCGImage(out, from: out.extent)
+    }
+
+    // MARK: Mist (Pro-Mist style look: highlights bloom into a soft halo, fine detail softens)
+
+    private lazy var bloom = CIFilter(name: "CIBloom")
+
+    /// `strength` 0…1. Radius follows the frame size so MIST1 looks the same at 1024 px and 4K. The
+    /// result is cropped back to the source extent so the renderer's geometry does not change.
+    func applyMist(to image: CIImage, strength: Double) -> CIImage {
+        guard let bloom, strength > 0 else { return image }
+        let scale = max(image.extent.width, image.extent.height) / 1024
+        bloom.setValue(image, forKey: kCIInputImageKey)
+        bloom.setValue(30 * strength * scale, forKey: kCIInputRadiusKey)   // 15 px at MIST1, 30 px at MIST2 on a 1024-px frame
+        bloom.setValue(0.7 * strength, forKey: kCIInputIntensityKey)
+        return bloom.outputImage?.cropped(to: image.extent) ?? image
     }
 
     // MARK: False color (exposure bands, ARRI-style ordering: purple → blue → grey → green → pink → yellow → orange → red)
