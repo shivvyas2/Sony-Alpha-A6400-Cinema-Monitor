@@ -25,6 +25,7 @@ public struct PhotoView: View {
         }
         .onChange(of: session.frame, initial: true) { _, f in reprocess(f) }
         .onChange(of: overlays.peaking) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.peakingColor) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.feedColorSpace) { _, _ in reprocess(session.frame) }
     }
 
@@ -82,7 +83,7 @@ public struct PhotoView: View {
     private func reprocess(_ frame: CIImage?) {
         guard let frame else { processed = nil; return }
         let source = frame.matchedToWorkingSpace(from: overlays.feedColorSpace.cgColorSpace) ?? frame
-        processed = processor.pipeline(source, peaking: overlays.peaking, zebra: false, zebraLevel: 1, falseColor: false, rotation: 0)
+        processed = processor.pipeline(source, peaking: overlays.peaking, zebra: false, zebraLevel: 1, falseColor: false, rotation: 0, peakingColor: overlays.peakingColor.rgb)
         let point = session.focusCheckPoint ?? session.state.touchAFPoint.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
         meter.measure(frame, afPoint: point) { r in liveSharpness = r }
     }

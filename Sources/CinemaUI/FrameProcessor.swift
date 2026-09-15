@@ -33,7 +33,8 @@ final class FrameProcessor: @unchecked Sendable {
 
     /// GPU pipeline: LUT → (false colour, zebra, peaking) → rotation, as a lazy CIImage that the Metal
     /// renderer draws directly. Nothing is read back to the CPU.
-    func pipeline(_ image: CIImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false, rotation: Int = 0, effects: Bool = true) -> CIImage {
+    func pipeline(_ image: CIImage, peaking: Bool, zebra: Bool, zebraLevel: Double, falseColor: Bool = false, rotation: Int = 0, effects: Bool = true,
+                  peakingColor: (Double, Double, Double) = (1, 0.15, 0.1)) -> CIImage {
         var src = image
         if let lutFilter {
             lutFilter.setValue(src, forKey: kCIInputImageKey)
@@ -43,7 +44,7 @@ final class FrameProcessor: @unchecked Sendable {
         if effects {
             if falseColor { out = applyFalseColor(to: out) }
             if zebra { out = applyZebra(to: out, source: src, level: zebraLevel) }
-            if peaking { out = applyPeaking(to: out, source: src) }
+            if peaking { out = applyPeaking(to: out, source: src, color: peakingColor) }
         }
         if rotation != 0 {
             let o: CGImagePropertyOrientation = rotation == 90 ? .right : (rotation == 270 ? .left : .up)
@@ -289,19 +290,19 @@ final class FrameProcessor: @unchecked Sendable {
         return over.outputImage ?? base
     }
 
-    private func applyPeaking(to base: CIImage, source: CIImage) -> CIImage {
+    private func applyPeaking(to base: CIImage, source: CIImage, color: (Double, Double, Double)) -> CIImage {
         guard let edges = CIFilter(name: "CIEdges"), let over = CIFilter(name: "CISourceOverCompositing") else { return base }
         edges.setValue(source, forKey: kCIInputImageKey)
         edges.setValue(4.0, forKey: kCIInputIntensityKey)
         guard let e = edges.outputImage,
               let mask = luminanceMask(e, threshold: 0.35) else { return base }
-        let red = mask.applyingFilter("CIColorMatrix", parameters: [
-            "inputRVector": CIVector(x: 1, y: 0, z: 0, w: 0),
-            "inputGVector": CIVector(x: 0, y: 0.15, z: 0, w: 0),
-            "inputBVector": CIVector(x: 0, y: 0, z: 0.1, w: 0),
+        let tinted = mask.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: color.0, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 0, y: color.1, z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: color.2, w: 0),
             "inputAVector": CIVector(x: 1, y: 0, z: 0, w: 0),
         ])
-        over.setValue(red, forKey: kCIInputImageKey)
+        over.setValue(tinted, forKey: kCIInputImageKey)
         over.setValue(base, forKey: kCIInputBackgroundImageKey)
         return over.outputImage ?? base
     }
