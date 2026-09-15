@@ -35,9 +35,11 @@ final class RingBufferTests: XCTestCase {
     func testRequestLongerThanCapacityIsClamped() {
         let rb = RingBuffer(channels: 1, sampleRate: 100, seconds: 1)
         rb.write(ramp(rb.format, start: 0, frames: 250))
-        XCTAssertEqual(rb.read(lastSeconds: 10).frameLength, 100)
-        XCTAssertEqual(rb.read(lastSeconds: 0.5).frameLength, 50)
-        XCTAssertEqual(rb.read(lastSeconds: 0.5).floatChannelData![0][0], 200)
+        let all = rb.read(lastSeconds: 10)
+        XCTAssertEqual(all.frameLength, 100)
+        let half = rb.read(lastSeconds: 0.5)
+        XCTAssertEqual(half.frameLength, 50)
+        XCTAssertEqual(half.floatChannelData![0][0], 200)
     }
 
     func testWriteLargerThanCapacityKeepsTail() {
