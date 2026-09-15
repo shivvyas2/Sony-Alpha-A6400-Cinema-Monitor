@@ -6,6 +6,80 @@ enum MobileMetrics {
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
     static var target: CGFloat { isPad ? 52 : 44 }
     static var railWidth: CGFloat { isPad ? 72 : 60 }
+    /// Width of the side panel that replaces bottom sheets in landscape: a narrow column over the
+    /// picture's right edge, like a cinema monitor's menu list, so most of the feed stays in view.
+    static var panelWidth: CGFloat { isPad ? 260 : 220 }
+}
+
+/// Non-nil while a sheet's content is hosted in the landscape side panel; calling it closes the panel.
+/// Sheet views use it to swap their navigation-bar chrome for a compact header and to dismiss.
+struct MobilePanelDismissKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
+extension EnvironmentValues {
+    var mobilePanelDismiss: (() -> Void)? {
+        get { self[MobilePanelDismissKey.self] }
+        set { self[MobilePanelDismissKey.self] = newValue }
+    }
+}
+
+/// Translucent column over the picture's right edge in landscape, in the idiom of a cinema monitor's
+/// menu list: the live feed stays visible around and through it. Hosts the same content the bottom
+/// sheets show in portrait, restyled compact (small type, plain rows, ON/OFF toggles).
+struct MobilePanel<Content: View>: View {
+    let onClose: () -> Void
+    @ViewBuilder var content: Content
+    var body: some View {
+        content
+            .environment(\.mobilePanelDismiss, onClose)
+            .environment(\.defaultMinListRowHeight, 34)
+            .font(.system(size: 13))
+            .dynamicTypeSize(.small)
+            .controlSize(.small)
+            .toggleStyle(MobilePanelToggleStyle())
+            .frame(width: MobileMetrics.panelWidth)
+            .background(Theme.field.opacity(0.78))
+            .overlay(Rectangle().stroke(Theme.panelLine, lineWidth: 1))
+            .tint(Theme.accent)
+    }
+}
+
+/// Title row for panel content: small tracked label, thin rule, and a close mark.
+struct MobilePanelHeader: View {
+    let title: String
+    let onClose: () -> Void
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title.uppercased()).font(Theme.label(10)).tracking(2.5).foregroundStyle(Theme.text)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.dim)
+                        .frame(width: 30, height: 30).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            .padding(.leading, 12).padding(.trailing, 2).frame(height: 34)
+            Rectangle().fill(Theme.panelLine).frame(height: 1)
+        }
+    }
+}
+
+/// Toggle drawn as a label with an ON / OFF pill on the right, as on a monitor menu.
+struct MobilePanelToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            HStack {
+                configuration.label.foregroundStyle(Theme.text)
+                Spacer(minLength: 8)
+                Text(configuration.isOn ? "ON" : "OFF").font(Theme.label(9)).tracking(1.2)
+                    .foregroundStyle(configuration.isOn ? Color.black : Theme.dim)
+                    .frame(width: 38, height: 20)
+                    .background(configuration.isOn ? Theme.accent : Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 /// Rail / deck button: SF Symbol over a tiny tracked label. Orange when active, like the Mac's edge buttons.
@@ -86,10 +160,29 @@ struct MobileCandidateSheet: View {
     var format: (String) -> String = { $0 }
     let onPick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobilePanelDismiss) private var panelDismiss
     var body: some View {
-        NavigationStack {
+        if let panelDismiss {
+            VStack(spacing: 0) {
+                MobilePanelHeader(title: title, onClose: panelDismiss)
+                column { onPick($0); panelDismiss() }
+            }
+        } else {
+            NavigationStack {
+                list { onPick($0); dismiss() }
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func list(pick: @escaping (String) -> Void) -> some View {
+        ScrollViewReader { proxy in
             List(candidates, id: \.self) { c in
-                Button { onPick(c); dismiss() } label: {
+                Button { pick(c) } label: {
                     HStack {
                         Text(format(c)).font(Theme.mono(16, weight: c == current ? .semibold : .regular)).foregroundStyle(Theme.text)
                         Spacer()
@@ -98,15 +191,35 @@ struct MobileCandidateSheet: View {
                     .frame(minHeight: 44)
                 }
                 .listRowBackground(Theme.panel)
+                .id(c)
             }
             .scrollContentBackground(.hidden)
             .background(Theme.field)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .onAppear { if candidates.contains(current) { proxy.scrollTo(current, anchor: .center) } }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+    }
+
+    /// Panel mode: a column of values with the current one filled, like a monitor's value list.
+    private func column(pick: @escaping (String) -> Void) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 2) {
+                    ForEach(candidates, id: \.self) { c in
+                        Button { pick(c) } label: {
+                            Text(format(c)).font(Theme.mono(15, weight: c == current ? .semibold : .regular))
+                                .foregroundStyle(c == current ? Color.black : Theme.text)
+                                .frame(maxWidth: .infinity, minHeight: 34)
+                                .background(c == current ? Theme.accent : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 3))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(c)
+                    }
+                }
+                .padding(8)
+            }
+            .onAppear { if candidates.contains(current) { proxy.scrollTo(current, anchor: .center) } }
+        }
     }
 }
 

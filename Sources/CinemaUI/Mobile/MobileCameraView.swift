@@ -15,11 +15,30 @@ public struct MobileCameraView: View {
     @State private var afFlash = false
     @State private var sheet: MobileSheet?
     @State private var hint: String?
+    @State private var isPortrait = true
 
     enum MobileSheet: String, Identifiable {
         case guides, focus, zoom, format, settings, shutter, iris, iso, ev, wb
         var id: String { rawValue }
+        /// Everything but Settings docks beside the picture in landscape so the feed stays in view.
+        var docksInLandscape: Bool { self != .settings }
     }
+
+    /// True while a tool is open as the landscape side panel rather than a sheet.
+    private var panelOpen: Bool { !isPortrait && (sheet?.docksInLandscape ?? false) }
+
+    /// Sheets are only presented in portrait, or for Settings in either orientation.
+    private var sheetItem: Binding<MobileSheet?> {
+        Binding(get: { sheet.flatMap { isPortrait || !$0.docksInLandscape ? $0 : nil } },
+                set: { new in
+                    // Rotating to landscape dismisses the sheet; keep the tool open as the side panel.
+                    if new == nil, panelOpen { return }
+                    sheet = new
+                })
+    }
+
+    /// Rail buttons toggle their tool: tapping the one that is open closes it.
+    private func toggle(_ which: MobileSheet) { sheet = sheet == which ? nil : which }
 
     public var body: some View {
         GeometryReader { geo in
@@ -34,8 +53,9 @@ public struct MobileCameraView: View {
                     landscapeLayout(geo.size)
                 }
             }
+            .onChange(of: portrait, initial: true) { _, p in isPortrait = p }
         }
-        .sheet(item: $sheet) { which in sheetView(which) }
+        .sheet(item: sheetItem) { which in sheetView(which) }
         .onChange(of: session.frame, initial: true) { _, f in reprocess(f) }
         .onChange(of: overlays.peaking) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.peakingColor) { _, _ in reprocess(session.frame) }
@@ -63,7 +83,15 @@ public struct MobileCameraView: View {
             leftRail
             VStack(spacing: 0) {
                 topBand
-                picture
+                // The panel is a narrow column over the picture's right edge; tapping the picture closes it.
+                ZStack(alignment: .trailing) {
+                    picture
+                    if let which = sheet, which.docksInLandscape {
+                        MobilePanel(onClose: { sheet = nil }) { sheetView(which) }
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.2), value: sheet)
                 bottomBand
             }
             rightRail
@@ -157,14 +185,14 @@ public struct MobileCameraView: View {
     private var leftRail: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 6) {
-                MobileToolButton(icon: "grid", label: "GUIDES", active: overlays.grid || overlays.frameGuides || overlays.safeAreas || overlays.diagonals) { sheet = .guides }
+                MobileToolButton(icon: "grid", label: "GUIDES", active: sheet == .guides || overlays.grid || overlays.frameGuides || overlays.safeAreas || overlays.diagonals) { toggle(.guides) }
                 MobileToolButton(icon: "waveform.path.ecg", label: "PEAK", active: overlays.peaking) { overlays.peaking.toggle() }
                 MobileToolButton(icon: "line.diagonal", label: "ZEBRA", active: overlays.zebra) { overlays.zebra.toggle() }
                 MobileToolButton(icon: "plus.magnifyingglass", label: "2×", active: overlays.magnify) { overlays.magnify.toggle() }
                 MobileToolButton(icon: "circle.lefthalf.filled", label: overlays.lutOn ? "709" : "LOG", active: overlays.lutOn && (overlays.profile.isLog || overlays.customLUT != nil),
                                  enabled: overlays.profile.isLog || overlays.customLUT != nil) { overlays.lutOn.toggle() }
                 MobileToolButton(icon: "chart.bar.xaxis", label: overlays.scope == .none ? "SCOPE" : overlays.scope.rawValue, active: overlays.scope != .none) { overlays.scope = overlays.scope.next }
-                MobileToolButton(icon: "square.and.arrow.down", label: "FORMAT") { sheet = .format }
+                MobileToolButton(icon: "square.and.arrow.down", label: "FORMAT", active: sheet == .format) { toggle(.format) }
                 Spacer(minLength: 0)
                 MobileToolButton(icon: "gearshape", label: "SETUP") { sheet = .settings }
             }
@@ -180,8 +208,8 @@ public struct MobileCameraView: View {
             VStack(spacing: 6) {
                 MobileToolButton(icon: "scope", label: "AF", enabled: s.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
                 MobileToolButton(icon: "lock", label: "AEL") { Task { await session.press(.aeLock) } }
-                MobileToolButton(icon: "camera.aperture", label: "FOCUS", active: overlays.peaking) { sheet = .focus }
-                MobileToolButton(icon: "arrow.up.left.and.arrow.down.right", label: "ZOOM") { sheet = .zoom }
+                MobileToolButton(icon: "camera.aperture", label: "FOCUS", active: sheet == .focus || overlays.peaking) { toggle(.focus) }
+                MobileToolButton(icon: "arrow.up.left.and.arrow.down.right", label: "ZOOM", active: sheet == .zoom) { toggle(.zoom) }
                 if overlays.shootingMode == .video {
                     MobileToolButton(icon: "camera", label: "STILL", enabled: s.supports("actTakePicture")) { Task { await session.takePicture() } }
                 }
@@ -277,6 +305,7 @@ public struct MobileCameraView: View {
                 Color.clear.contentShape(Rectangle())
                     .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
                     .onTapGesture { loc in
+                        if panelOpen { sheet = nil; return }
                         var x = layout.cropX + loc.x / rect.width * layout.cropWidth
                         var y = layout.cropY + loc.y / rect.height * layout.cropHeight
                         if overlays.rotation == 90 { (x, y) = (y, 1 - x) } else if overlays.rotation == 270 { (x, y) = (1 - y, x) }

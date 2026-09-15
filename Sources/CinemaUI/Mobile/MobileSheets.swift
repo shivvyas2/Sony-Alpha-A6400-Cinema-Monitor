@@ -7,18 +7,31 @@ struct SheetChrome<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobilePanelDismiss) private var panelDismiss
     var body: some View {
-        NavigationStack {
-            Form { content }
-                .scrollContentBackground(.hidden)
-                .background(Theme.field)
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        if let panelDismiss {
+            // Landscape: hosted in a MobilePanel beside the live picture.
+            VStack(spacing: 0) {
+                MobilePanelHeader(title: title, onClose: panelDismiss)
+                List { content.listRowBackground(Color.clear) }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .listRowSeparatorTint(Theme.panelLine)
+                    .headerProminence(.standard)
+            }
+        } else {
+            NavigationStack {
+                Form { content }
+                    .scrollContentBackground(.hidden)
+                    .background(Theme.field)
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .tint(Theme.accent)
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .tint(Theme.accent)
     }
 }
 
@@ -63,6 +76,16 @@ struct FocusSheet: View {
     @Environment(OverlaySettings.self) private var overlays
     let liveSharpness: Double
     @State private var wheel: CGFloat = 0
+    @Environment(\.mobilePanelDismiss) private var panelDismiss
+    private var inPanel: Bool { panelDismiss != nil }
+
+    private var autofocusButton: some View {
+        Button { Task { await session.autofocus() } } label: { Label("Autofocus", systemImage: "scope").lineLimit(1).frame(maxWidth: .infinity, minHeight: 36) }
+            .buttonStyle(.bordered).disabled(!session.state.supports("actHalfPressShutter"))
+    }
+    private var focusStatus: some View {
+        HStack { FocusDot(status: session.state.focusStatus); Text(session.state.focusStatus ?? "").font(.footnote).foregroundStyle(Theme.dim) }
+    }
     var body: some View {
         @Bindable var ov = overlays
         let s = session.state
@@ -76,11 +99,11 @@ struct FocusSheet: View {
                 } else {
                     SetOnCamera(what: "Focus mode")
                 }
-                HStack {
-                    Button { Task { await session.autofocus() } } label: { Label("Autofocus", systemImage: "scope").frame(maxWidth: .infinity, minHeight: 36) }
-                        .buttonStyle(.bordered).disabled(!s.supports("actHalfPressShutter"))
-                    FocusDot(status: s.focusStatus)
-                    Text(s.focusStatus ?? "").font(.footnote).foregroundStyle(Theme.dim)
+                // Button beside the status in the sheet; stacked in the narrow landscape panel.
+                if inPanel {
+                    VStack(alignment: .leading, spacing: 6) { autofocusButton; focusStatus }
+                } else {
+                    HStack { autofocusButton; focusStatus }
                 }
             }
             Section("Manual focus") {
