@@ -18,7 +18,7 @@
 		21E8AD86E98719F4EFE0F2A2 /* CinemaHUDMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CinemaHUDMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F9138B69615F436135B1CFF /* CinemaHUDMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinemaHUDMobileApp.swift; sourceTree = "<group>"; };
 		4C6EC62C5CBB91553EA0EFBD /* LaunchIntroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchIntroView.swift; sourceTree = "<group>"; };
-		50F4D490B1F41B3E2DEB50D7 /* Cinema */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Cinema; path = ..; sourceTree = SOURCE_ROOT; };
+		783FE9E656B5752C16D3CB8C /* shot-assist */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "shot-assist"; path = ..; sourceTree = SOURCE_ROOT; };
 		D245915048E53527239CF111 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F24C0C1FA62B3B908A7BCF48 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -59,7 +59,7 @@
 		BD85778129D25D166AA9D3A3 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				50F4D490B1F41B3E2DEB50D7 /* Cinema */,
+				783FE9E656B5752C16D3CB8C /* shot-assist */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
