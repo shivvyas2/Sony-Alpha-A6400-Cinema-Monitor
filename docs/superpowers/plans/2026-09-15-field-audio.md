@@ -1608,13 +1608,15 @@ public enum TakeSync {
         guard let coarse = Correlation.bestLag(a: ea, b: eb, lags: (centre - span) ... (centre + span)) else {
             throw AudioDecoder.Error.noAudioTrack
         }
+        // Fine stage: 1 ms RMS envelopes at 48 kHz resolution (hop 1) keep transient timing but
+        // remove carrier periodicity, so a tone-like signal cannot lock onto a neighbouring cycle.
         let fineRate = 48000.0
         async let a48 = AudioDecoder.monoSamples(url: wav, sampleRate: fineRate)
         async let b48 = AudioDecoder.monoSamples(url: clip, sampleRate: fineRate)
-        let a = try await a48
-        let b = Array(try await b48.prefix(Int(10 * fineRate)))
+        let ea48 = Correlation.envelope(try await a48, window: 48, hop: 1)
+        let eb48 = Correlation.envelope(Array(try await b48.prefix(Int(10 * fineRate))), window: 48, hop: 1)
         let c = coarse.lag * Int(fineRate) / 1000
-        let fine = Correlation.bestLag(a: a, b: b, lags: (c - 2400) ... (c + 2400), minOverlap: min(b.count, Int(fineRate)))
+        let fine = Correlation.bestLag(a: ea48, b: eb48, lags: (c - 2400) ... (c + 2400), minOverlap: min(eb48.count, Int(fineRate)))
         let lag = fine?.lag ?? c
         return (Double(lag) / fineRate, coarse.confidence)
     }
