@@ -19,7 +19,7 @@ public struct ClipInfo: Sendable, Equatable, Identifiable {
 
 public struct TakePair: Identifiable, Equatable, Sendable {
     public enum Status: Equatable, Sendable {
-        case unpaired, estimated, synced, lowConfidence, missingWAV, exported(URL), failed(String)
+        case unpaired, estimated, synced, lowConfidence, missingWAV, exported(ExportedWAV), failed(String)
     }
     public var id: String { clip.id.path }
     public var clip: ClipInfo

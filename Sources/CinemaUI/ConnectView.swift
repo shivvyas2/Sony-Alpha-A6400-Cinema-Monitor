@@ -1,5 +1,9 @@
 import SwiftUI
 import SonyCameraKit
+import CinemaAudio
+#if os(macOS)
+import AppKit
+#endif
 
 public struct ConnectView: View {
     public init() {}
@@ -93,6 +97,10 @@ public struct ConnectView: View {
                 .hudPanel()
             }
 
+            #if os(macOS)
+            SyncTakesCard()
+            #endif
+
             statusLine
         }
         .padding(40)
@@ -146,6 +154,77 @@ public struct ConnectView: View {
     }
 }
 
+
+#if os(macOS)
+/// The post-shoot half of the app, on the launch screen. Sync Takes used to be reachable only from the
+/// Audio menu, so someone who had just finished a shoot had no way to discover it from here.
+struct SyncTakesCard: View {
+    @Environment(\.openWindow) private var openWindow
+    @Environment(AudioSessionController.self) private var audio: AudioSessionController?
+    @State private var takeCount = 0
+
+    private var dayFolder: URL { audio?.dayFolder ?? DayFolder.url(for: Date()) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Text("AFTER THE SHOOT").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.text)
+                Spacer()
+                Text(takeCount == 0 ? "No takes recorded today" : "\(takeCount) take\(takeCount == 1 ? "" : "s") recorded today")
+                    .font(.system(size: 11)).foregroundStyle(takeCount == 0 ? Theme.dim : Theme.ok)
+            }
+
+            Text("CinemaHUD records a WAV for every take. Sync Takes lines them up with the camera's clips and writes a Final Cut XML.")
+                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+
+            AdaptiveStack(spacing: 20) {
+                syncStep(1, "Copy the card's clips to this Mac.")
+                syncStep(2, "Drop them on Sync Takes, then Sync All.")
+                syncStep(3, "Export, then File ▸ Import ▸ XML in Final Cut Pro.")
+            }
+
+            HStack(spacing: 10) {
+                Button { openWindow(id: "sync-takes") } label: {
+                    Label("Sync Takes…", systemImage: "waveform.badge.plus").frame(width: 150)
+                }
+                .buttonStyle(.borderedProminent).tint(Theme.selection).foregroundStyle(.black)
+
+                Button("Show Audio Folder") {
+                    try? FileManager.default.createDirectory(at: dayFolder, withIntermediateDirectories: true)
+                    NSWorkspace.shared.activateFileViewerSelecting([dayFolder])
+                }
+                .buttonStyle(.bordered)
+
+                Spacer(minLength: 12)
+
+                Text(dayFolder.path).font(Theme.mono(10)).foregroundStyle(Theme.dim)
+                    .lineLimit(1).truncationMode(.head)
+            }
+        }
+        .frame(maxWidth: 752, alignment: .leading)   // (300 + 36) + (400 + 36) + 16 spacing, less this panel's own padding
+        .padding(18)
+        .hudPanel()
+        .onAppear { countTakes() }
+    }
+
+    /// Only takes that finished cleanly can be paired, so those are the ones worth counting.
+    private func countTakes() {
+        takeCount = TakeLog.load(from: dayFolder).takes.filter { $0.outcome == .complete }.count
+    }
+
+    private func syncStep(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(n)").font(Theme.mono(10, weight: .bold)).foregroundStyle(Theme.dim)
+                .frame(width: 16, height: 16)
+                .overlay(Circle().stroke(Theme.dim.opacity(0.6), lineWidth: 1))
+            Text(text).font(.system(size: 12)).foregroundStyle(.white.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 230, alignment: .leading)
+    }
+}
+#endif
 
 /// Side by side when there is room, stacked on narrow screens (iPhone).
 struct AdaptiveStack<Content: View>: View {

@@ -1,6 +1,19 @@
 import AVFoundation
 import Accelerate
 
+/// Exactly what `TakeExport.trimmedWAV` put on disk. Final Cut rejects an edit that claims more media
+/// than the file holds ("Invalid edit with no respective media"), so the FCPXML states the WAV's length
+/// from these counted samples rather than re-deriving it from the clip duration and rounding.
+public struct ExportedWAV: Equatable, Sendable {
+    public var url: URL
+    public var frames: Int
+    public var sampleRate: Double
+    public init(url: URL, frames: Int, sampleRate: Double) {
+        self.url = url; self.frames = frames; self.sampleRate = sampleRate
+    }
+    public var seconds: Double { sampleRate > 0 ? Double(frames) / sampleRate : 0 }
+}
+
 public enum TakeExport {
     public enum Error: Swift.Error, LocalizedError {
         case noVideoTrack, exportFailed(String)
@@ -19,7 +32,9 @@ public enum TakeExport {
     }
 
     /// The WAV from `offset` for `duration` seconds, silence-padded, same format, with bext/iXML rewritten.
-    public static func trimmedWAV(wav: URL, offset: Double, duration: Double, take: TakeRecord?, to out: URL) throws {
+    /// Returns the frame count actually written, which is what the FCPXML declares as the asset's length.
+    @discardableResult
+    public static func trimmedWAV(wav: URL, offset: Double, duration: Double, take: TakeRecord?, to out: URL) throws -> ExportedWAV {
         let src = try AVAudioFile(forReading: wav)
         let rate = src.fileFormat.sampleRate
         let channels = src.processingFormat.channelCount
@@ -28,6 +43,7 @@ public enum TakeExport {
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: out)
         // The AVAudioFile must be released (closed) before BroadcastWave.finalize runs, so the copy runs in its own scope.
+        var framesWritten = 0
         func writeSamples() throws {
             let dst = try AVAudioFile(forWriting: out, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
             let format = PCMFormat.float(channels: Int(channels), sampleRate: rate)
@@ -51,6 +67,7 @@ public enum TakeExport {
                 try dst.write(from: buf)
                 written += n
             }
+            framesWritten = written
         }
         try writeSamples()
         let ref = (try? BroadcastWave.readBext(url: wav)?.timeReference) ?? 0
@@ -74,6 +91,7 @@ public enum TakeExport {
                                       originationTime: originationTime(shifted, rate: rate), timeReference: shifted,
                                       codingHistory: "A=PCM,F=\(Int(rate)),W=24,M=\(channels == 1 ? "mono" : "stereo"),T=CinemaHUD")
         try BroadcastWave.finalize(url: out, bext: bext, ixml: ixml)
+        return ExportedWAV(url: out, frames: framesWritten, sampleRate: rate)
     }
 
     static func originationTime(_ samplesSinceMidnight: UInt64, rate: Double) -> String {

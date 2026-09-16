@@ -18,6 +18,13 @@ public final class SyncTakesModel {
 
     public func reloadTakes() { takes = TakeLog.load(from: dayFolder).takes }
 
+    /// Empties the table so another card can be dropped in; the day folder and its takes stay put.
+    public func clear() {
+        guard !busy else { return }
+        pairs = []
+        message = nil
+    }
+
     /// Inspect dropped files/folders, pair them with this day's takes, flag missing WAVs.
     public func load(_ urls: [URL]) async {
         guard !busy else { return }
@@ -91,9 +98,9 @@ public final class SyncTakesModel {
             let src = dayFolder.appendingPathComponent(take.wavPath)
             let out = TakeExport.outputs(for: pairs[i].clip, take: take, in: synced)
             do {
-                try TakeExport.trimmedWAV(wav: src, offset: offset, duration: pairs[i].clip.duration, take: take, to: out.wav)
+                let written = try TakeExport.trimmedWAV(wav: src, offset: offset, duration: pairs[i].clip.duration, take: take, to: out.wav)
                 try await TakeExport.movie(clip: pairs[i].clip.url, wav: src, offset: offset, to: out.mov)
-                pairs[i].status = .exported(out.wav)
+                pairs[i].status = .exported(written)
             } catch {
                 pairs[i].status = .failed(error.localizedDescription)
             }
@@ -141,6 +148,7 @@ public struct SyncTakesView: View {
                 Button("Choose Day Folder…") { chooseDayFolder() }.disabled(model.busy).controlSize(.small)
                 Spacer()
                 Button("Choose Clips…") { chooseClips() }.disabled(model.busy).controlSize(.small)
+                Button("Clear") { model.clear() }.disabled(model.busy || model.pairs.isEmpty).controlSize(.small)
                 Button("Sync All") { Task { await model.syncAll() } }.disabled(model.busy || model.pairs.isEmpty).controlSize(.small)
                 Button("Export") { Task { await model.exportAll() } }.disabled(model.busy || !model.pairs.contains { $0.offsetSeconds != nil }).controlSize(.small).keyboardShortcut(.defaultAction)
             }

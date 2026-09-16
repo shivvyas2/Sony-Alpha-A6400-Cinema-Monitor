@@ -215,12 +215,13 @@ In Logic: File ▸ Project Settings ▸ Synchronization ▸ Sync Mode = **MTC** 
 Settings ▸ MIDI ▸ Sync ▸ **Listen to MMC Input** on; and "CinemaHUD" enabled under MIDI inputs.
 Logic then starts recording on REC and its regions sit at the same timecode as the WAVs.
 
-**Sync Takes (⌘Y).** After the shoot, drop the card's `PRIVATE/M4ROOT/CLIP` folder (or individual
-clips) on the window. The app pairs each clip with a take by order and length, then **Sync All** finds
+**Sync Takes (⌘Y).** The launch screen's **After the Shoot** panel opens it, as does the Audio menu.
+After the shoot, drop the card's `PRIVATE/M4ROOT/CLIP` folder (or individual clips) on the window. The app pairs each clip with a take by order and length, then **Sync All** finds
 the exact offset by cross-correlating the clip's own audio against the WAV (feeding the interface's
 line out into the camera's mic input makes this bulletproof; the built-in mic usually works too).
-**Export** writes, into `<day>/synced/`: a trimmed WAV that starts with the clip, a `.mov` with the
-video untouched and the interface audio as track 1 (camera audio kept as track 2), and
+**Clear** empties the table for another card. **Export** writes, into `<day>/synced/`: a trimmed WAV
+that starts with the clip, a `.mov` with the video untouched and the interface audio as track 1
+(camera audio kept as track 2), and
 `CinemaHUD_<day>.fcpxml`. In Final Cut Pro, File ▸ Import ▸ XML brings in an event with every clip
 already synced (camera audio muted, WAV connected); Resolve imports the same file.
 Rows marked "Low confidence" use the estimate from the take log; check them in the editor.
@@ -237,7 +238,11 @@ exercised against the simulator only; hardware verification pending.
 
 Field audio: arm a Scarlett 2i2 (meters follow input) — pending; REC on the α6400 produces a WAV of
 clip length + ~4 s — pending; Logic 11 chases MTC and records on REC — pending; Sync Takes on a real
-card gives "Synced" rows — pending; Final Cut Pro imports the FCPXML with clips in sync — pending.
+card gives "Synced" rows — pending; Final Cut Pro imports the FCPXML with clips in sync — the first
+attempt failed with "Invalid edit with no respective media" on the connected WAV, because durations
+were rounded to the nearest frame and so claimed up to half a frame more audio than the trimmed file
+holds; durations bounded by real media now floor, and the WAV states its length in samples. Re-import
+pending.
 
 ## iPhone and iPad
 
