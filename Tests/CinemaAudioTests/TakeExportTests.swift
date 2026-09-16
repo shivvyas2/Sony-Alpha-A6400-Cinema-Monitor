@@ -36,6 +36,25 @@ final class TakeExportTests: XCTestCase {
         try TestMedia.writeWAV(url: src, seconds: 1)
         try TakeExport.trimmedWAV(wav: src, offset: 0.5, duration: 2, take: nil, to: out)
         XCTAssertEqual(try AVAudioFile(forReading: out).length, 96000)
+        let samples = try awaitSamples(out)
+        XCTAssertFalse(samples[0 ..< 24000].allSatisfy { $0 == 0 }, "0.5 s of source data remains at the start")
+        XCTAssertTrue(samples[24000...].allSatisfy { $0 == 0 }, "past the source's end is explicit silence")
+    }
+
+    func testMovieWithOffsetPastWAVEndPadsSilence() async throws {
+        let dir = try TestMedia.tempDir("movpad")
+        let clip = dir.appendingPathComponent("C0002.MP4"), wav = dir.appendingPathComponent("w.wav"), out = dir.appendingPathComponent("C0002_synced.mov")
+        try TestMedia.writeMovie(url: clip, seconds: 2)
+        try TestMedia.writeWAV(url: wav, seconds: 1, amplitude: 0.2)
+        try await TakeExport.movie(clip: clip, wav: wav, offset: 5.0, to: out)   // offset beyond the WAV: must not crash
+        let asset = AVURLAsset(url: out)
+        let audio = try await asset.loadTracks(withMediaType: .audio)
+        // Only 1 audio track (the clip's own), not 2: with the offset past the WAV's end, track 1 would be
+        // nothing but an empty range, and AVAssetExportSessionPresetPassthrough drops such a track, so
+        // TakeExport.movie skips adding it rather than producing a track the export silently discards.
+        XCTAssertEqual(audio.count, 1)
+        let movieDuration = try await asset.load(.duration).seconds
+        XCTAssertEqual(movieDuration, 2, accuracy: 0.05)
     }
 
     func testMovieHasPassthroughVideoAndTwoAudioTracks() async throws {

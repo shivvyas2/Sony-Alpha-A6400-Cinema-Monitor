@@ -1,4 +1,5 @@
 import AVFoundation
+import Accelerate
 
 public enum TakeExport {
     public enum Error: Swift.Error, LocalizedError {
@@ -33,7 +34,8 @@ public enum TakeExport {
             while written < total {
                 let n = min(chunk, total - written)
                 let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n))!
-                buf.frameLength = AVAudioFrameCount(n)                     // zero-filled = silence
+                buf.frameLength = AVAudioFrameCount(n)
+                for c in 0 ..< Int(channels) { vDSP_vclr(buf.floatChannelData![c], 1, vDSP_Length(n)) }   // explicit silence
                 let pos = start + written
                 if pos >= 0, pos < Int(src.length) {
                     src.framePosition = AVAudioFramePosition(pos)
@@ -86,13 +88,26 @@ public enum TakeExport {
         v.preferredTransform = try await video.load(.preferredTransform)
 
         if let wavTrack = try await wavAsset.loadTracks(withMediaType: .audio).first {
-            let a1 = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
             let wavDuration = try await wavAsset.load(.duration)
-            let start = CMTime(seconds: max(0, offset), preferredTimescale: 48000)
+            let wavTimescale = try await wavTrack.load(.naturalTimeScale)
+            let start = CMTime(seconds: max(0, offset), preferredTimescale: wavTimescale)
             let available = CMTimeSubtract(wavDuration, start)
-            let take = CMTimeMinimum(duration, available)
-            if take > .zero { try a1.insertTimeRange(CMTimeRange(start: start, duration: take), of: wavTrack, at: .zero) }
-            if take < duration { a1.insertEmptyTimeRange(CMTimeRange(start: take, duration: CMTimeSubtract(duration, take))) }
+            // Clamp to [.zero, duration]: an offset past the WAV's end would otherwise make `available`
+            // (and `take`) negative, and `insertEmptyTimeRange` with a negative start throws an uncaught
+            // ObjC exception.
+            let take = CMTimeMaximum(.zero, CMTimeMinimum(duration, available))
+            // Deviation from the brief: when `take == .zero` (offset at or past the WAV's end) the brief's
+            // structure still adds an audio track whose only content is `insertEmptyTimeRange` — i.e. no
+            // real media segment at all. AVAssetExportSessionPresetPassthrough silently drops such a track
+            // (confirmed empirically: the exported .mov then has 1 audio track, not 2), so the composition
+            // would end up two tracks short of what the interface promises whenever offset ends up beyond
+            // the WAV. Skip adding track 1 entirely in that case — the clip's own audio (track 2, below)
+            // still carries the audio, and the output has 1 audio track instead of 2.
+            if take > .zero {
+                let a1 = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+                try a1.insertTimeRange(CMTimeRange(start: start, duration: take), of: wavTrack, at: .zero)
+                if take < duration { a1.insertEmptyTimeRange(CMTimeRange(start: take, duration: CMTimeSubtract(duration, take))) }
+            }
         }
         if let camAudio = try await clipAsset.loadTracks(withMediaType: .audio).first {
             let a2 = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
