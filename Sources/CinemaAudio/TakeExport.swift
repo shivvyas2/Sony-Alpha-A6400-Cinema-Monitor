@@ -26,7 +26,7 @@ public enum TakeExport {
         // The AVAudioFile must be released (closed) before BroadcastWave.finalize runs, so the copy runs in its own scope.
         func writeSamples() throws {
             let dst = try AVAudioFile(forWriting: out, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-            let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels)!
+            let format = PCMFormat.float(channels: Int(channels), sampleRate: rate)
             let total = Int(duration * rate)
             let start = Int(offset * rate)
             var written = 0

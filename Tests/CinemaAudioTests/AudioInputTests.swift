@@ -14,14 +14,27 @@ final class AudioInputTests: XCTestCase {
 
     func testSelectPicksChannelsInOrder() {
         // AVAudioFormat(standardFormatWithSampleRate:channels:) only succeeds for 1-2 channels on this SDK;
-        // use AudioInput's discrete-layout helper for the 4-channel source buffer (see AudioInput.floatFormat).
-        let f = AudioInput.floatFormat(sampleRate: 48000, channels: 4)
+        // use the shared PCMFormat helper for the 4-channel source buffer.
+        let f = PCMFormat.float(channels: 4, sampleRate: 48000)
         let src = tone(f, frames: 10, amplitude: 0.1)
         let out = AudioInput.select(src, channels: [3, 1])
         XCTAssertEqual(out.format.channelCount, 2)
         XCTAssertEqual(out.frameLength, 10)
         XCTAssertEqual(out.floatChannelData![0][5], src.floatChannelData![2][5])
         XCTAssertEqual(out.floatChannelData![1][5], src.floatChannelData![0][5])
+    }
+
+    func testSelectFourOutputChannels() {
+        let f = PCMFormat.float(channels: 6, sampleRate: 48000)
+        let src = tone(f, frames: 10, amplitude: 0.1)
+        let out = AudioInput.select(src, channels: [6, 5, 2, 1])
+        XCTAssertEqual(out.format.channelCount, 4)
+        XCTAssertFalse(out.format.isInterleaved)
+        XCTAssertEqual(out.frameLength, 10)
+        XCTAssertEqual(out.floatChannelData![0][5], src.floatChannelData![5][5])
+        XCTAssertEqual(out.floatChannelData![1][5], src.floatChannelData![4][5])
+        XCTAssertEqual(out.floatChannelData![2][5], src.floatChannelData![1][5])
+        XCTAssertEqual(out.floatChannelData![3][5], src.floatChannelData![0][5])
     }
 
     /// Thread-safe frame counter for the @Sendable sink.

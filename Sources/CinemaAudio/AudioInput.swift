@@ -132,7 +132,7 @@ public final class AudioInput {
     }
 
     public func preroll(seconds: Double) -> AVAudioPCMBuffer {
-        ring?.read(lastSeconds: seconds) ?? AVAudioPCMBuffer(pcmFormat: AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!, frameCapacity: 1)!
+        ring?.read(lastSeconds: seconds) ?? AVAudioPCMBuffer(pcmFormat: PCMFormat.float(channels: 1, sampleRate: 48000), frameCapacity: 1)!
     }
 
     public func subscribe(_ sink: @escaping @Sendable (AVAudioPCMBuffer) -> Void) -> AnyCancellable {
@@ -144,19 +144,9 @@ public final class AudioInput {
         }
     }
 
-    /// Non-interleaved Float32 PCM format for `channels` channels. `AVAudioFormat(standardFormatWithSampleRate:channels:)`
-    /// only succeeds for 1-2 channels on current SDKs; above that it needs an explicit discrete channel layout.
-    static func floatFormat(sampleRate: Double, channels: Int) -> AVAudioFormat {
-        if channels <= 2 {
-            return AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))!
-        }
-        let layout = AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | AVAudioChannelCount(channels))!
-        return AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, interleaved: false, channelLayout: layout)
-    }
-
     /// A new buffer holding only `channels` (1-based device channel numbers), in that order.
     public static func select(_ buffer: AVAudioPCMBuffer, channels: [Int]) -> AVAudioPCMBuffer {
-        let format = floatFormat(sampleRate: buffer.format.sampleRate, channels: channels.count)
+        let format = PCMFormat.float(channels: channels.count, sampleRate: buffer.format.sampleRate)
         let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: buffer.frameLength)!
         out.frameLength = buffer.frameLength
         guard let src = buffer.floatChannelData, let dst = out.floatChannelData else { return out }

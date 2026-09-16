@@ -11,7 +11,7 @@ public final class RingBuffer {
     private let lock = NSLock()
 
     public init(channels: Int, sampleRate: Double, seconds: Double) {
-        format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))!
+        format = PCMFormat.float(channels: channels, sampleRate: sampleRate)
         capacity = max(1, Int(sampleRate * seconds))
         storage = Array(repeating: [Float](repeating: 0, count: capacity), count: channels)
     }

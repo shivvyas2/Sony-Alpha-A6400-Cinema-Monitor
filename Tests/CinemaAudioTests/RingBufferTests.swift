@@ -50,4 +50,14 @@ final class RingBufferTests: XCTestCase {
         XCTAssertEqual(out.floatChannelData![0][0], 900)
         XCTAssertEqual(out.floatChannelData![0][99], 999)
     }
+
+    func testFourChannelRingBuffer() {
+        let rb = RingBuffer(channels: 4, sampleRate: 100, seconds: 1)      // capacity 100 frames
+        let format = PCMFormat.float(channels: 4, sampleRate: 100)
+        rb.write(ramp(format, start: 0, frames: 150))
+        let out = rb.read(lastSeconds: 1)
+        XCTAssertEqual(out.frameLength, 100)
+        XCTAssertEqual(out.format.channelCount, 4)
+        XCTAssertEqual(out.floatChannelData![3][0], 3050)      // tail keeps frames 50..149; start 50 + 3 * 1000
+    }
 }
