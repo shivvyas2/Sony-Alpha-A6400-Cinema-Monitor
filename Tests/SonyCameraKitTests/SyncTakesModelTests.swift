@@ -21,5 +21,30 @@ final class SyncTakesModelTests: XCTestCase {
         let marked = SyncTakesModel.markMissing(pairs, dayFolder: dir)
         XCTAssertEqual(marked.map(\.status), [.estimated, .missingWAV, .unpaired])
     }
+
+    @MainActor func testLoadIsIgnoredWhileBusy() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sync-busy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let model = SyncTakesModel(dayFolder: dir)
+        model.setBusyForTesting(true)
+        await model.load([dir])
+        XCTAssertTrue(model.pairs.isEmpty)
+        XCTAssertNil(model.message, "a busy model ignores the load entirely")
+        model.setBusyForTesting(false)
+        await model.load([dir])
+        XCTAssertEqual(model.message, "No clips found (looking for .MP4 / .MOV)")
+    }
+
+    @MainActor func testChangingDayFolderClearsPairs() throws {
+        let dir1 = FileManager.default.temporaryDirectory.appendingPathComponent("sync-day1-\(UUID().uuidString)")
+        let dir2 = FileManager.default.temporaryDirectory.appendingPathComponent("sync-day2-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir1, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dir2, withIntermediateDirectories: true)
+        let model = SyncTakesModel(dayFolder: dir1)
+        model.dayFolder = dir2
+        XCTAssertTrue(model.pairs.isEmpty)
+        XCTAssertNil(model.message)
+        XCTAssertTrue(model.takes.isEmpty, "takes should reflect the new (empty) day folder")
+    }
 }
 #endif

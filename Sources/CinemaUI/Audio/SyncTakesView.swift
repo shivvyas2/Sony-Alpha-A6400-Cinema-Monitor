@@ -7,7 +7,7 @@ import CinemaAudio
 @Observable
 @MainActor
 public final class SyncTakesModel {
-    public var dayFolder: URL { didSet { reloadTakes() } }
+    public var dayFolder: URL { didSet { pairs = []; message = nil; reloadTakes() } }
     public private(set) var takes: [TakeRecord] = []
     public private(set) var pairs: [TakePair] = []
     public private(set) var busy = false
@@ -20,6 +20,7 @@ public final class SyncTakesModel {
 
     /// Inspect dropped files/folders, pair them with this day's takes, flag missing WAVs.
     public func load(_ urls: [URL]) async {
+        guard !busy else { return }
         busy = true; defer { busy = false }
         message = nil
         let clips = await TakeSync.inspect(urls)
@@ -28,6 +29,7 @@ public final class SyncTakesModel {
     }
 
     public func setTake(_ take: TakeRecord?, for pairID: String) {
+        guard !busy else { return }
         guard let i = pairs.firstIndex(where: { $0.id == pairID }) else { return }
         pairs[i].take = take
         pairs[i].offsetSeconds = take.map(TakeSync.estimate)
@@ -38,6 +40,7 @@ public final class SyncTakesModel {
 
     /// Run the waveform search for every pair that has a take and a WAV, four at a time.
     public func syncAll() async {
+        guard !busy else { return }
         busy = true; defer { busy = false }
         let folder = dayFolder
         enum Outcome { case ok(offset: Double, confidence: Double), failed(String) }
@@ -79,6 +82,7 @@ public final class SyncTakesModel {
 
     /// Trimmed WAV + synced .mov per pair, then the FCPXML for the day.
     public func exportAll() async {
+        guard !busy else { return }
         busy = true; defer { busy = false }
         let synced = dayFolder.appendingPathComponent("synced")
         try? FileManager.default.createDirectory(at: synced, withIntermediateDirectories: true)
@@ -119,6 +123,9 @@ public final class SyncTakesModel {
             return p
         }
     }
+
+    /// For tests: force `busy` without going through an actual load/sync/export.
+    func setBusyForTesting(_ v: Bool) { busy = v }
 }
 
 public struct SyncTakesView: View {
@@ -131,9 +138,9 @@ public struct SyncTakesView: View {
         VStack(spacing: 10) {
             HStack {
                 Text(model.dayFolder.path).font(Theme.mono(11)).foregroundStyle(Theme.dim).lineLimit(1).truncationMode(.head)
-                Button("Choose Day Folder…") { chooseDayFolder() }.controlSize(.small)
+                Button("Choose Day Folder…") { chooseDayFolder() }.disabled(model.busy).controlSize(.small)
                 Spacer()
-                Button("Choose Clips…") { chooseClips() }.controlSize(.small)
+                Button("Choose Clips…") { chooseClips() }.disabled(model.busy).controlSize(.small)
                 Button("Sync All") { Task { await model.syncAll() } }.disabled(model.busy || model.pairs.isEmpty).controlSize(.small)
                 Button("Export") { Task { await model.exportAll() } }.disabled(model.busy || !model.pairs.contains { $0.offsetSeconds != nil }).controlSize(.small).keyboardShortcut(.defaultAction)
             }
@@ -164,6 +171,7 @@ public struct SyncTakesView: View {
         .padding(14)
         .frame(minWidth: 760, minHeight: 420)
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            guard !model.busy else { return false }
             Task {
                 var urls: [URL] = []
                 for p in providers {
