@@ -1,11 +1,19 @@
 #!/bin/bash
-# Builds CinemaHUD.app (release) and packages it into build/CinemaHUD.dmg.
+# Builds CinemaHUD.app (release) and packages it into build/CinemaHUD-<version>.dmg.
+# The version and build number come from Resources/Info.plist, so the file name and the
+# volume name Finder shows always say which build this is.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 APP_NAME=CinemaHUD
 BUILD=build
+PLIST=Resources/Info.plist
+VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")
+BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")
 APP="$BUILD/$APP_NAME.app"
-DMG="$BUILD/$APP_NAME.dmg"
+DMG="$BUILD/$APP_NAME-$VERSION.dmg"
+VOLNAME="$APP_NAME $VERSION"
+
+echo "▸ version $VERSION (build $BUILD_NUMBER)"
 
 echo "▸ swift build (release)"
 swift build -c release --product "$APP_NAME" 2>&1 | grep -E "error|warning: unre|Compiling|Build complete" || true
@@ -29,6 +37,8 @@ STAGE="$BUILD/dmg-stage"
 rm -rf "$STAGE" "$DMG"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
-echo "✔ $DMG ($(du -h "$DMG" | cut -f1))"
+# Older builds wrote an unversioned CinemaHUD.dmg; remove it so the newest file is unambiguous.
+rm -f "$BUILD/$APP_NAME.dmg"
+echo "✔ $DMG ($(du -h "$DMG" | cut -f1)) — mounts as \"$VOLNAME\""

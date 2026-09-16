@@ -280,7 +280,7 @@ Requires Xcode 15+ command line tools (Swift 5.9+) and macOS 14+.
 
 ```sh
 swift test                 # unit tests for the protocol layer
-./scripts/build-dmg.sh     # → build/CinemaHUD.app and build/CinemaHUD.dmg
+./scripts/build-dmg.sh     # → build/CinemaHUD.app and build/CinemaHUD-<version>.dmg
 ```
 
 ### Developing without a camera
