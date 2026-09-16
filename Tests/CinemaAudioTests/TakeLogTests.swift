@@ -48,4 +48,19 @@ final class TakeLogTests: XCTestCase {
         FileManager.default.createFile(atPath: audio.appendingPathComponent("A_0001_C003_2.wav").path, contents: Data())
         XCTAssertEqual(DayFolder.uniqueWAVName(stem: "A_0001_C003", in: audio), "A_0001_C003_3.wav")
     }
+
+    func testLoadAcceptsWholeSecondTimestamps() throws {
+        let dir = try TestMedia.tempDir("legacy")
+        let json = """
+        {"takes":[{"id":"A_0001_C001","label":{"cameraIndex":"A","reel":1,"clip":1},"wavPath":"audio/A_0001_C001.wav",
+          "pressedAt":"2026-09-15T14:03:20Z","confirmedStart":"2026-09-15T14:03:20.400Z","prerollSeconds":3,"sampleRate":48000,
+          "channelNames":["Input 1"],"metadata":{"project":"CinemaHUD","projectFPS":24,"camera":{}},"outcome":{"complete":{}}}]}
+        """
+        try json.write(to: dir.appendingPathComponent(TakeLog.fileName), atomically: true, encoding: .utf8)
+        let log = TakeLog.load(from: dir)
+        XCTAssertEqual(log.takes.count, 1)
+        XCTAssertEqual(log.takes[0].pressedAt, Date(timeIntervalSince1970: 1_789_481_000))
+        XCTAssertEqual(log.takes[0].confirmedStart?.timeIntervalSince1970 ?? 0, 1_789_481_000.4, accuracy: 0.001)
+        XCTAssertEqual(log.takes[0].outcome, .complete)
+    }
 }
