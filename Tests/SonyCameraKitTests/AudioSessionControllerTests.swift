@@ -41,19 +41,31 @@ final class AudioSessionControllerTests: XCTestCase {
         XCTAssertEqual(again.dayFolder.lastPathComponent, DayFolder.dayString(Date()))
     }
 
-    @MainActor func testDeviceRemovalArmsReturnGateOnlyForThatDevice() throws {
+    @MainActor func testDeviceRemovalArmsReturnGateOnlyForThatDevice() async throws {
         let suite = "AudioSessionControllerTests-rearm-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("uid-scarlett", forKey: "audio.deviceUID")
         let c = AudioSessionController(base: FileManager.default.temporaryDirectory.appendingPathComponent(suite), defaults: defaults)
-        c.simulateInterruption(.deviceRemoved)
-        XCTAssertEqual(c.interruption, "Audio device removed")
+        XCTAssertEqual(c.selectedDeviceUID, "uid-scarlett")
+        let scarlett = AudioDevice(id: 0xFFFF_FFF1, uid: "uid-scarlett", name: "Scarlett 2i2 USB", inputChannelNames: ["1", "2"], nominalSampleRate: 48000, supportedSampleRates: [48000])
+        let other = AudioDevice(id: 0xFFFF_FFF2, uid: "uid-other", name: "Other", inputChannelNames: ["1"], nominalSampleRate: 48000, supportedSampleRates: [48000])
+
+        c.simulateInterruption(.deviceRemoved)          // gate opens for uid-scarlett
+        c.simulateDevicesChanged([other])               // a different device returning must not trigger an arm attempt
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNil(c.armError, "no arm attempt for another device")
+
+        c.simulateDevicesChanged([scarlett])            // the awaited device returns → arm attempt (fails: bogus id, no permission)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(c.armError, "Device not connected", "refreshDevices() replaces the fake list with the real HAL list before the lookup, so the fake uid is not found")
         XCTAssertFalse(c.isArmed)
-        c.simulateInterruption(.configurationChanged)
-        XCTAssertEqual(c.interruption, "Audio configuration changed")
-        // No device was ever selected, so nothing is awaited; refreshDevices() must not attempt an arm.
-        c.refreshDevices()
-        XCTAssertFalse(c.isArmed)
+
+        c.simulateInterruption(.configurationChanged)   // clears the gate
+        let firstError = c.armError
+        c.simulateDevicesChanged([scarlett])
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(c.armError, firstError, "gate closed: no second attempt")
     }
 }
 #endif

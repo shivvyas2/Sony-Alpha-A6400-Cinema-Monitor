@@ -134,6 +134,9 @@ public final class AudioSessionController {
     /// for tests: lets a test simulate an `AudioInput` interruption without arming real hardware.
     func simulateInterruption(_ reason: AudioInputInterruption) { interrupted(reason) }
 
+    /// For tests: replace the device list and run the re-arm check as the device watcher would.
+    func simulateDevicesChanged(_ list: [AudioDevice]) { devices = list; reArmIfDeviceReturned() }
+
     // MARK: Logic transport
 
     private func updateTransport() {
