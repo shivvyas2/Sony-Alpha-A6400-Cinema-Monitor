@@ -14,6 +14,20 @@ public enum ConnectionPhase: Sendable, Equatable {
     public var isConnected: Bool { self == .live }
 }
 
+/// Recording milestones for anything that runs alongside the camera (the field audio recorder):
+/// the REC press on the Mac, and the body's own confirmed start and stop.
+public enum RecordingEvent: Equatable, Sendable {
+    case pressed(Date), started(Date), stopped(Date)
+
+    public static func transition(wasRecording: Bool, isRecording: Bool, at date: Date) -> RecordingEvent? {
+        switch (wasRecording, isRecording) {
+        case (false, true): return .started(date)
+        case (true, false): return .stopped(date)
+        default: return nil
+        }
+    }
+}
+
 /// Main-actor façade over whichever backend is connected: runs the state and liveview loops,
 /// exposes observable state for the UI, and offers async control actions.
 @MainActor
@@ -31,6 +45,8 @@ public final class CameraSession {
     public private(set) var sourceFPS: Double = 0
     /// Number of recordings started this session.
     public private(set) var takes = 0
+    /// Latest recording milestone (see `RecordingEvent`). Observers use `onChange` on this value.
+    public private(set) var recordingEvent: RecordingEvent?
     /// Frame-rate multiplier for synthesized in-between frames: 1 = off, 2, 4 or 8. Adds one frame of delay.
     public var motionFactor = 1 { didSet { interpolator?.factor = motionFactor; if motionFactor == 1 && denoise == 0 { interpolator?.reset() } } }
     public var smoothMotion: Bool { get { motionFactor > 1 } set { motionFactor = newValue ? 2 : 1 } }
@@ -182,6 +198,7 @@ public final class CameraSession {
                     let wasRecording = self.state.isRecording
                     self.state = s
                     if !wasRecording && s.isRecording { self.takes += 1 }
+                    if let e = RecordingEvent.transition(wasRecording: wasRecording, isRecording: s.isRecording, at: Date()) { self.recordingEvent = e }
                     let list = await backend.settings()
                     if list != self.settings { self.settings = list }
                     if self.bridgeServer != nil, let b = self.bridgeState() { self.bridgeStates.send(b) }
@@ -391,7 +408,10 @@ public final class CameraSession {
     }
     public func toggleRecording() async {
         if state.isRecording { await perform("Stop REC") { try await $0.stopMovie() } }
-        else { await perform("REC") { try await $0.startMovie() } }
+        else {
+            recordingEvent = .pressed(Date())
+            await perform("REC") { try await $0.startMovie() }
+        }
     }
     /// x, y in 0...1 of the liveview image.
     public func touchAF(x: Double, y: Double) async {

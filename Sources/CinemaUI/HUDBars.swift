@@ -279,6 +279,9 @@ struct BottomStrip: View {
         let s = session.state
         let rec = s.isRecording
         return HStack(spacing: 0) {
+            #if os(macOS)
+            AudioMeterItem()
+            #endif
             if let m = s.recordableMinutes { item("MEDIA", String(format: "%d:%02d h", m / 60, m % 60)) }
             else if let n = s.shotsRemaining { item("MEDIA", "\(n)") }
             else { item("MEDIA", "--") }
@@ -470,6 +473,9 @@ struct SettingsPanel: View {
                             }
                         }
                     }
+                    #if os(macOS)
+                    AudioSettingsSection()
+                    #endif
                     ForEach(["Exposure", "Focus", "Shooting", "Image"], id: \.self) { g in
                         if let items = groups[g], !items.isEmpty {
                             section(g) {

@@ -1,0 +1,63 @@
+import XCTest
+import AVFoundation
+@testable import CinemaAudio
+
+final class RingBufferTests: XCTestCase {
+    /// A buffer whose channel c sample i is Float(start + i) + c * 1000.
+    func ramp(_ format: AVAudioFormat, start: Int, frames: Int) -> AVAudioPCMBuffer {
+        let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))!
+        b.frameLength = AVAudioFrameCount(frames)
+        for c in 0 ..< Int(format.channelCount) {
+            for i in 0 ..< frames { b.floatChannelData![c][i] = Float(start + i) + Float(c) * 1000 }
+        }
+        return b
+    }
+
+    func testReadReturnsLastSecondsInOrderAcrossWrap() {
+        let rb = RingBuffer(channels: 2, sampleRate: 100, seconds: 3)      // capacity 300 frames
+        var pos = 0
+        for _ in 0 ..< 10 { rb.write(ramp(rb.format, start: pos, frames: 50)); pos += 50 }   // 500 frames written
+        let out = rb.read(lastSeconds: 3)
+        XCTAssertEqual(out.frameLength, 300)
+        XCTAssertEqual(out.floatChannelData![0][0], 200)       // frames 200…499
+        XCTAssertEqual(out.floatChannelData![0][299], 499)
+        XCTAssertEqual(out.floatChannelData![1][0], 1200)
+    }
+
+    func testReadBeforeFullReturnsOnlyWhatWasWritten() {
+        let rb = RingBuffer(channels: 1, sampleRate: 100, seconds: 3)
+        rb.write(ramp(rb.format, start: 0, frames: 120))
+        let out = rb.read(lastSeconds: 3)
+        XCTAssertEqual(out.frameLength, 120)
+        XCTAssertEqual(out.floatChannelData![0][119], 119)
+    }
+
+    func testRequestLongerThanCapacityIsClamped() {
+        let rb = RingBuffer(channels: 1, sampleRate: 100, seconds: 1)
+        rb.write(ramp(rb.format, start: 0, frames: 250))
+        let all = rb.read(lastSeconds: 10)
+        XCTAssertEqual(all.frameLength, 100)
+        let half = rb.read(lastSeconds: 0.5)
+        XCTAssertEqual(half.frameLength, 50)
+        XCTAssertEqual(half.floatChannelData![0][0], 200)
+    }
+
+    func testWriteLargerThanCapacityKeepsTail() {
+        let rb = RingBuffer(channels: 1, sampleRate: 100, seconds: 1)
+        rb.write(ramp(rb.format, start: 0, frames: 1000))
+        let out = rb.read(lastSeconds: 1)
+        XCTAssertEqual(out.frameLength, 100)
+        XCTAssertEqual(out.floatChannelData![0][0], 900)
+        XCTAssertEqual(out.floatChannelData![0][99], 999)
+    }
+
+    func testFourChannelRingBuffer() {
+        let rb = RingBuffer(channels: 4, sampleRate: 100, seconds: 1)      // capacity 100 frames
+        let format = PCMFormat.float(channels: 4, sampleRate: 100)
+        rb.write(ramp(format, start: 0, frames: 150))
+        let out = rb.read(lastSeconds: 1)
+        XCTAssertEqual(out.frameLength, 100)
+        XCTAssertEqual(out.format.channelCount, 4)
+        XCTAssertEqual(out.floatChannelData![3][0], 3050)      // tail keeps frames 50..149; start 50 + 3 * 1000
+    }
+}

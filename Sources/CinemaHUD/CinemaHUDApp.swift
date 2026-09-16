@@ -19,12 +19,14 @@ struct CinemaHUDApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = CameraSession()
     @State private var overlays = OverlaySettings()
+    @State private var audio = AudioSessionController()
 
     var body: some Scene {
         WindowGroup("CinemaHUD") {
             ContentView()
                 .environment(session)
                 .environment(overlays)
+                .environment(audio)
                 .frame(minWidth: 960, minHeight: 600)
                 .preferredColorScheme(.dark)
         }
@@ -107,6 +109,62 @@ struct CinemaHUDApp: App {
                 }
                 Toggle("Hide HUD", isOn: $overlays.hideHUD).keyboardShortcut("h", modifiers: [])
             }
+            AudioCommands(audio: audio)
+        }
+        Window("Sync Takes", id: "sync-takes") {
+            SyncTakesView(dayFolder: audio.dayFolder).environment(audio).preferredColorScheme(.dark)
+        }
+        Window("Scene & Note", id: "audio-scene") {
+            AudioSceneView().environment(audio).preferredColorScheme(.dark)
+        }
+        .windowResizability(.contentSize)
+    }
+}
+
+struct AudioCommands: Commands {
+    let audio: AudioSessionController
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandMenu("Audio") {
+            Menu("Input") {
+                Button("None") { Task { await audio.arm(deviceUID: nil, channels: audio.selectedChannels) } }
+                Divider()
+                ForEach(audio.devices) { d in
+                    Button(d.name) { Task { await audio.arm(deviceUID: d.uid, channels: audio.selectedChannels) } }
+                }
+                Divider()
+                Button("Refresh Devices") { audio.refreshDevices() }
+            }
+            .disabled(audio.permission == .denied)
+            if audio.permission == .denied {
+                Button("Microphone access denied — Open Privacy Settings…") {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+                }
+            }
+            Menu("Channels") {
+                if let d = audio.selectedDevice {
+                    ForEach(Array(d.inputChannelNames.prefix(8).enumerated()), id: \.offset) { i, name in
+                        let ch = i + 1
+                        Toggle("\(ch)  \(name)", isOn: Binding(get: { audio.selectedChannels.contains(ch) }, set: { on in
+                            var c = Set(audio.selectedChannels); if on { c.insert(ch) } else { c.remove(ch) }
+                            Task { await audio.setChannels(c.sorted()) }
+                        }))
+                    }
+                } else {
+                    Text("Choose an input first")
+                }
+            }
+            Toggle("Send Timecode to Logic (MTC + MMC)", isOn: Binding(get: { audio.sendTimecode }, set: { audio.sendTimecode = $0 }))
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+            Button("Reset Clip Indicators") { audio.resetClip() }
+            Button("Scene & Note…") { openWindow(id: "audio-scene") }
+            Divider()
+            Button("Sync Takes…") { openWindow(id: "sync-takes") }.keyboardShortcut("y", modifiers: [.command])
+            Button("Show Audio Folder") {
+                try? FileManager.default.createDirectory(at: audio.dayFolder, withIntermediateDirectories: true)
+                NSWorkspace.shared.activateFileViewerSelecting([audio.dayFolder])
+            }
         }
     }
 }
@@ -132,6 +190,7 @@ extension CinemaHUDApp {
 struct ContentView: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @Environment(AudioSessionController.self) private var audio
 
     var body: some View {
         ZStack {
@@ -147,11 +206,21 @@ struct ContentView: View {
             fflush(stdout)
         }
         .onChange(of: session.state.shootMode, initial: true) { _, dial in overlays.modeResolver.dial(dial) }
+        .onChange(of: session.recordingEvent) { _, event in
+            guard let event else { return }
+            audio.handle(event,
+                         label: AudioSessionController.label(for: event, takes: session.takes, cameraIndex: overlays.cameraIndex, reel: overlays.reel),
+                         metadata: AudioSessionController.metadata(state: session.state, projectFPS: overlays.projectFPS, scene: audio.scene, note: audio.note))
+        }
+        .onChange(of: overlays.projectFPS, initial: true) { _, fps in audio.projectFPS = fps }
         .onChange(of: session.phase.isConnected) { _, connected in
             // The Mac shares whatever camera it has to iPhones and iPads on the network.
             if connected { session.startBridge() } else { session.stopBridge() }
         }
         .task {
+            // Lets the 5 s confirm timeout check the camera itself before deleting a take's WAV, in case
+            // the `.started` milestone was coalesced away rather than never happening.
+            audio.isCameraRecording = { session.state.isRecording }
             // Dev convenience: CINEMAHUD_ADDRESS=127.0.0.1:8080 auto-connects (e.g. to tools/camerasim.py).
             DevHooks.apply(to: overlays)
             if let ov = ProcessInfo.processInfo.environment["CINEMAHUD_OVERLAYS"] {

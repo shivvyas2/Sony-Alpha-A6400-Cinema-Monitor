@@ -16,6 +16,8 @@
     <key>NSHumanReadableCopyright</key><string>CinemaHUD</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>CinemaHUD discovers and controls your Sony camera over the camera's Wi-Fi network.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>CinemaHUD records your audio interface alongside the camera's video.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key><true/>
