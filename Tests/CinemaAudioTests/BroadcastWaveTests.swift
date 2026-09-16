@@ -51,4 +51,20 @@ final class BroadcastWaveTests: XCTestCase {
         XCTAssertEqual(try BroadcastWave.chunks(url: url).filter { $0.id == "bext" }.count, 1)
         XCTAssertEqual(try BroadcastWave.readBext(url: url)?.description, "two")
     }
+
+    func testTruncatedFileThrowsInsteadOfTrapping() throws {
+        let dir = try TestMedia.tempDir("trunc")
+        let url = dir.appendingPathComponent("t.wav")
+        try TestMedia.writeWAV(url: url, seconds: 0.1)
+        let bext = BroadcastWave.Bext(description: "t", originator: "CinemaHUD", originatorReference: "", originationDate: "2026-09-15", originationTime: "00:00:00", timeReference: 1, codingHistory: "")
+        try BroadcastWave.finalize(url: url, bext: bext, ixml: "<BWFXML><PROJECT>x</PROJECT></BWFXML>")
+        // Cut the tail off: iXML is the last chunk, so it becomes incomplete while bext stays whole.
+        var data = try Data(contentsOf: url)
+        data.removeLast(20)
+        try data.write(to: url)
+        XCTAssertEqual(try BroadcastWave.readBext(url: url)?.description, "t")
+        XCTAssertThrowsError(try BroadcastWave.readIXML(url: url)) { error in
+            guard case BroadcastWave.Error.truncated = error else { return XCTFail("expected .truncated, got \(error)") }
+        }
+    }
 }

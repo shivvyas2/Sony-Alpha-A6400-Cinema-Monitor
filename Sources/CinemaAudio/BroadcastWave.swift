@@ -41,6 +41,7 @@ public enum BroadcastWave {
     public static func readBext(url: URL) throws -> Bext? {
         let data = try Data(contentsOf: url, options: .alwaysMapped)
         guard let c = try chunks(url: url).first(where: { $0.id == "bext" }), c.size >= 602 else { return nil }
+        guard c.offset + 8 + c.size <= data.count else { throw Error.truncated }
         let p = c.offset + 8
         func str(_ off: Int, _ len: Int) -> String {
             let s = data[p + off ..< p + off + len]
@@ -55,6 +56,7 @@ public enum BroadcastWave {
     public static func readIXML(url: URL) throws -> String? {
         let data = try Data(contentsOf: url, options: .alwaysMapped)
         guard let c = try chunks(url: url).first(where: { $0.id == "iXML" }) else { return nil }
+        guard c.offset + 8 + c.size <= data.count else { throw Error.truncated }
         let body = data[c.offset + 8 ..< c.offset + 8 + c.size]
         return String(decoding: body.prefix { $0 != 0 }, as: UTF8.self)
     }
