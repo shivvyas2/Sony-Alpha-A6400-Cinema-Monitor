@@ -18,7 +18,12 @@ public struct AudioDevice: Identifiable, Hashable, Sendable {
 }
 
 public enum AudioDevices {
-    public enum Error: Swift.Error { case osStatus(OSStatus) }
+    public enum Error: Swift.Error, LocalizedError {
+        case osStatus(OSStatus)
+        public var errorDescription: String? {
+            switch self { case .osStatus(let s): return "Audio hardware error (\(s))" }
+        }
+    }
 
     public static func inputs() -> [AudioDevice] {
         var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
@@ -96,6 +101,7 @@ public enum AudioDevices {
     private static func array<T>(_ id: AudioObjectID, _ addr: inout AudioObjectPropertyAddress) -> [T]? {
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr else { return nil }
+        guard size > 0 else { return [] }   // an empty property (e.g. no supported sample rates listed) would otherwise force-unwrap a nil baseAddress below
         let count = Int(size) / MemoryLayout<T>.size
         var out = [T](unsafeUninitializedCapacity: count) { buf, n in
             n = AudioObjectGetPropertyData(id, &addr, 0, nil, &size, buf.baseAddress!) == noErr ? count : 0

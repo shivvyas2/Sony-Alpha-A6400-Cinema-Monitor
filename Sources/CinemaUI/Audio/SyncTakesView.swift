@@ -99,7 +99,7 @@ public final class SyncTakesModel {
             }
         }
         let day = dayFolder.lastPathComponent
-        let xml = FCPXML.document(pairs: pairs, syncedFolder: synced, projectFPS: projectFPS, eventName: "CinemaHUD \(day)")
+        let xml = FCPXML.document(pairs: pairs, projectFPS: projectFPS, eventName: "CinemaHUD \(day)")
         let xmlURL = synced.appendingPathComponent("CinemaHUD_\(day).fcpxml")
         do {
             try xml.write(to: xmlURL, atomically: true, encoding: .utf8)

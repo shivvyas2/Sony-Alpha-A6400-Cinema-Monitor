@@ -80,8 +80,22 @@ final class TakeExportTests: XCTestCase {
     func testOutputNames() {
         let c = ClipInfo(id: URL(fileURLWithPath: "/card/C0007.MP4"), name: "C0007", duration: 1, creationDate: nil, hasAudio: true, videoSize: .zero, nominalFrameRate: 24)
         let o = TakeExport.outputs(for: c, take: take(), in: URL(fileURLWithPath: "/day/synced"))
-        XCTAssertEqual(o.wav.path, "/day/synced/A_0001_C001.wav")
+        XCTAssertEqual(o.wav.path, "/day/synced/A_0001_C001.wav", "named from take.id, not the label")
         XCTAssertEqual(o.mov.path, "/day/synced/C0007_synced.mov")
+    }
+
+    func testOutputNamesDisambiguateSameLabelTakes() {
+        // Two takes sharing a label (e.g. the app restarted mid-shoot and CameraSession.takes reset to 0)
+        // get different `take.id`s from TakeRecorder's DayFolder.uniqueWAVName suffixing; the export must
+        // follow `id`, not the shared label, or the second export overwrites the first.
+        var first = take(); first.id = "A_0001_C001"
+        var second = take(); second.id = "A_0001_C001_2"
+        let c = ClipInfo(id: URL(fileURLWithPath: "/card/C0007.MP4"), name: "C0007", duration: 1, creationDate: nil, hasAudio: true, videoSize: .zero, nominalFrameRate: 24)
+        let synced = URL(fileURLWithPath: "/day/synced")
+        let o1 = TakeExport.outputs(for: c, take: first, in: synced)
+        let o2 = TakeExport.outputs(for: c, take: second, in: synced)
+        XCTAssertNotEqual(o1.wav, o2.wav)
+        XCTAssertEqual(o2.wav.path, "/day/synced/A_0001_C001_2.wav")
     }
 
     private func awaitSamples(_ url: URL) throws -> [Float] {

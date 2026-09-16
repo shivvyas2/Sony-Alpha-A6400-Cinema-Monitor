@@ -4,7 +4,12 @@ import Foundation
 
 /// A virtual MIDI source Logic can chase: MIDI Timecode at the project rate plus MMC record/stop.
 public final class LogicTransport {
-    public enum Error: Swift.Error { case midi(OSStatus) }
+    public enum Error: Swift.Error, LocalizedError {
+        case midi(OSStatus)
+        public var errorDescription: String? {
+            switch self { case .midi(let s): return "MIDI error (\(s))" }
+        }
+    }
 
     public private(set) var isRunning = false
     public private(set) var rate: MTCRate?

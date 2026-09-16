@@ -47,6 +47,12 @@ public struct TakeRecord: Codable, Equatable, Sendable, Identifiable {
     public var firstSampleDate: Date { pressedAt.addingTimeInterval(-prerollSeconds) }
 }
 
+private extension DateFormatter {
+    static let corruptStamp: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"; f.timeZone = TimeZone(identifier: "UTC"); return f
+    }()
+}
+
 public struct TakeLog: Codable, Equatable {
     public static let fileName = "takes.json"
     public var takes: [TakeRecord] = []
@@ -77,11 +83,21 @@ public struct TakeLog: Codable, Equatable {
         return enc
     }
 
-    public static func load(from folder: URL) -> TakeLog {
+    /// Loads `takes.json`, or an empty log when the file is missing. When it exists but fails to decode
+    /// (corrupt or hand-edited), the file is moved aside to `takes.json.corrupt-<timestamp>` — rather
+    /// than silently treated as empty and then overwritten by the next save, destroying the day's
+    /// pairing metadata — and `onCorrupt` is called with a short message before the empty log is returned.
+    public static func load(from folder: URL, onCorrupt: ((String) -> Void)? = nil) -> TakeLog {
         let url = folder.appendingPathComponent(fileName)
         guard let data = try? Data(contentsOf: url) else { return TakeLog() }
         let dec = Self.decoder()
-        return (try? dec.decode(TakeLog.self, from: data)) ?? TakeLog()
+        if let log = try? dec.decode(TakeLog.self, from: data) { return log }
+        let stamp = DateFormatter.corruptStamp.string(from: Date())
+        let movedTo = folder.appendingPathComponent("\(fileName).corrupt-\(stamp)")
+        try? FileManager.default.removeItem(at: movedTo)
+        try? FileManager.default.moveItem(at: url, to: movedTo)
+        onCorrupt?("takes.json was unreadable and has been moved aside to \(movedTo.lastPathComponent)")
+        return TakeLog()
     }
 
     public func save(to folder: URL) throws {

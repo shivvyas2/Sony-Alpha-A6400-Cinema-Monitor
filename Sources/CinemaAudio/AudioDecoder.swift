@@ -3,7 +3,15 @@ import AVFoundation
 
 /// Decodes any AVFoundation-readable audio (WAV, MP4/MOV tracks) to mono Float32 at `sampleRate`.
 public enum AudioDecoder {
-    public enum Error: Swift.Error { case noAudioTrack, readerFailed(String) }
+    public enum Error: Swift.Error, LocalizedError {
+        case noAudioTrack, readerFailed(String)
+        public var errorDescription: String? {
+            switch self {
+            case .noAudioTrack: return "No audio track found"
+            case .readerFailed(let m): return "Couldn't read audio: \(m)"
+            }
+        }
+    }
 
     public static func monoSamples(url: URL, sampleRate: Double, trackIndex: Int? = nil) async throws -> [Float] {
         let asset = AVURLAsset(url: url)

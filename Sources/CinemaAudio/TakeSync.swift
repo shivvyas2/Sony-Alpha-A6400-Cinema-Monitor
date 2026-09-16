@@ -33,6 +33,11 @@ public struct TakePair: Identifiable, Equatable, Sendable {
 }
 
 public enum TakeSync {
+    public enum Error: Swift.Error, LocalizedError {
+        case noCorrelation
+        public var errorDescription: String? { "Couldn't find a matching point in the audio (no correlation)" }
+    }
+
     public static let lowConfidence = 0.5
     public static let postRollSeconds = 1.0
     static let clipExtensions: Set<String> = ["mp4", "mov", "m4v"]
@@ -78,18 +83,28 @@ public enum TakeSync {
     }
 
     /// Walk clips and completed takes in time order; a clip takes the next take whose WAV length fits it.
+    /// A take that matches nothing is skipped for the *next* clip, not left blocking every later one:
+    /// each clip scans forward from `next` over at most the next 3 candidates (candidates with no
+    /// `confirmedStop` can't produce an expected duration, so they're skipped without using up that
+    /// budget) for the first one within tolerance. A match advances `next` to one past it; no match
+    /// leaves `next` where it was and marks the clip `.unpaired`.
     public static func pair(clips: [ClipInfo], takes: [TakeRecord]) -> [TakePair] {
         let candidates = takes.filter { $0.outcome == .complete }.sorted { $0.pressedAt < $1.pressedAt }
         var next = 0
         return clips.map { clip in
-            guard next < candidates.count else { return TakePair(clip: clip, take: nil, offsetSeconds: nil, confidence: nil, status: .unpaired) }
-            let t = candidates[next]
-            let wavSeconds = (t.confirmedStop ?? t.pressedAt).timeIntervalSince(t.firstSampleDate) + postRollSeconds
-            let expected = wavSeconds - estimate(t) - postRollSeconds
             let tolerance = max(2, 0.05 * clip.duration)
-            if abs(clip.duration - expected) <= tolerance {
-                next += 1
-                return TakePair(clip: clip, take: t, offsetSeconds: estimate(t), confidence: nil, status: .estimated)
+            var i = next, scanned = 0
+            while scanned < 3, i < candidates.count {
+                let t = candidates[i]
+                guard let stop = t.confirmedStop else { i += 1; continue }
+                let wavSeconds = stop.timeIntervalSince(t.firstSampleDate) + postRollSeconds
+                let expected = wavSeconds - estimate(t) - postRollSeconds
+                if abs(clip.duration - expected) <= tolerance {
+                    next = i + 1
+                    return TakePair(clip: clip, take: t, offsetSeconds: estimate(t), confidence: nil, status: .estimated)
+                }
+                i += 1
+                scanned += 1
             }
             return TakePair(clip: clip, take: nil, offsetSeconds: nil, confidence: nil, status: .unpaired)
         }
@@ -106,7 +121,7 @@ public enum TakeSync {
         let centre = Int(estimate * 1000)
         let span = Int(window * 1000)
         guard let coarse = Correlation.bestLag(a: ea, b: eb, lags: (centre - span) ... (centre + span)) else {
-            throw AudioDecoder.Error.noAudioTrack
+            throw Error.noCorrelation
         }
         // Fine stage (deviation from brief): correlating raw 48 kHz samples is ambiguous for a periodic
         // tone — a 440 Hz carrier repeats every ~109 samples at 48 kHz, so the brief's raw-sample search
@@ -118,11 +133,24 @@ public enum TakeSync {
         let fineRate = 48000.0
         async let a48 = AudioDecoder.monoSamples(url: wav, sampleRate: fineRate)
         async let b48 = AudioDecoder.monoSamples(url: clip, sampleRate: fineRate)
-        let ea48 = Correlation.envelope(try await a48, window: 48, hop: 1)
         let eb48 = Correlation.envelope(Array(try await b48.prefix(Int(10 * fineRate))), window: 48, hop: 1)
         let c = coarse.lag * Int(fineRate) / 1000
-        let fine = Correlation.bestLag(a: ea48, b: eb48, lags: (c - 2400) ... (c + 2400), minOverlap: min(eb48.count, Int(fineRate)))
-        let lag = fine?.lag ?? c
+        // The coarse stage already narrows the wav down to roughly where the clip starts; only decoding
+        // is unavoidable (AudioDecoder always reads the whole file), but enveloping (and keeping in
+        // memory) the full 48 kHz array — hundreds of MB on a 10-minute take — is not. Slice down to the
+        // ±50 ms fine-search window plus a 100 ms margin either side before enveloping, then shift the
+        // fine lag (which comes back relative to the slice) by the slice's start to land back in the
+        // WAV's own sample domain.
+        let margin = 4800   // 100 ms at 48 kHz
+        let sliceStart = max(0, c - 2400 - margin)
+        let sliceLength = eb48.count + 4800 + 2 * margin
+        let wavSamples = try await a48
+        let sliceEnd = min(wavSamples.count, sliceStart + sliceLength)
+        let slice = sliceStart < sliceEnd ? Array(wavSamples[sliceStart ..< sliceEnd]) : []
+        let ea48 = Correlation.envelope(slice, window: 48, hop: 1)
+        let localLags = (c - 2400 - sliceStart) ... (c + 2400 - sliceStart)
+        let fine = Correlation.bestLag(a: ea48, b: eb48, lags: localLags, minOverlap: min(eb48.count, Int(fineRate)))
+        let lag = fine.map { $0.lag + sliceStart } ?? c
         return (Double(lag) / fineRate, coarse.confidence)
     }
 }

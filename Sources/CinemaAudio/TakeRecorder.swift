@@ -15,6 +15,7 @@ public final class TakeRecorder {
 
     public private(set) var current: TakeRecord?
     public private(set) var log: TakeLog
+    public private(set) var loadWarning: String?
     public var onChange: ((TakeRecord) -> Void)?
     public var isRecording: Bool { current != nil }
 
@@ -28,7 +29,9 @@ public final class TakeRecorder {
 
     public init(input: AudioInput, dayFolder: URL, postRoll: Double = TakeRecorder.postRollSeconds) {
         self.input = input; self.dayFolder = dayFolder; self.postRoll = postRoll
-        log = TakeLog.load(from: dayFolder)
+        var warning: String?
+        log = TakeLog.load(from: dayFolder) { warning = $0 }
+        loadWarning = warning
     }
 
     public func begin(label: TakeLabel, metadata: TakeMetadata, pressedAt: Date) throws {
@@ -44,15 +47,27 @@ public final class TakeRecorder {
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: input.sampleRate, AVNumberOfChannelsKey: channels,
             AVLinearPCMBitDepthKey: 24, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false,
         ]
-        let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-        self.file = file
-        writeError = nil
         let prerollSeconds = Double(pre.frameLength) / input.sampleRate
         let record = TakeRecord(id: url.deletingPathExtension().lastPathComponent, label: label, wavPath: "audio/\(name)",
                                 pressedAt: pressedAt, confirmedStart: nil, confirmedStop: nil, prerollSeconds: prerollSeconds,
                                 sampleRate: input.sampleRate, channelNames: input.channelNames, metadata: metadata, outcome: .recording)
         current = record
-        queue.async { [weak self] in self?.write(pre) }
+        // `file` and `writeError` are queue-owned end to end: opening the AVAudioFile happens here, in
+        // the same queue.async block that then writes the pre-roll, rather than on main with `write`/
+        // `close` reading and clearing it from `queue` — that split was an unsynchronised cross-queue
+        // access. An open failure is routed through the same path a write failure takes.
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+                self.file = file
+                self.writeError = nil
+                self.write(pre)
+            } catch {
+                self.writeError = error.localizedDescription
+                DispatchQueue.main.async { [weak self] in self?.abortAfterWriteFailure(error.localizedDescription) }
+            }
+        }
         subscription = input.subscribe { [weak self] buffer in
             self?.queue.async { self?.write(buffer) }
         }

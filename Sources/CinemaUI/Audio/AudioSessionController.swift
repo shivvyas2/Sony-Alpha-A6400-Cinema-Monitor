@@ -28,6 +28,11 @@ public final class AudioSessionController {
     public private(set) var takes: [TakeRecord] = []
     public private(set) var transportRunning = false
     public let dayFolder: URL
+    /// Injected by the app so the 5 s confirm timeout can check the camera itself before deleting a
+    /// take's WAV: if `.started` is ever missed (SwiftUI coalesces `onChange` while the window is
+    /// occluded) but the camera is actually rolling, aborting on the milestone alone would delete live
+    /// audio. `nil` (the default, e.g. in tests that don't set it) keeps the old behaviour: abort.
+    public var isCameraRecording: (() -> Bool)?
     public var meters: MeterState { input.meters }
     public var selectedDevice: AudioDevice? { selectedDeviceUID.flatMap { uid in devices.first { $0.uid == uid } } }
     public var mtcRate: MTCRate { MTCRate(projectFPS: projectFPS) }
@@ -45,6 +50,7 @@ public final class AudioSessionController {
         self.defaults = defaults
         dayFolder = DayFolder.url(for: Date(), base: base)
         recorder = TakeRecorder(input: input, dayFolder: dayFolder)
+        if let warning = recorder.loadWarning { interruption = warning }
         selectedDeviceUID = defaults.string(forKey: Keys.device)
         if let ch = defaults.array(forKey: Keys.channels) as? [Int], !ch.isEmpty { selectedChannels = ch }
         sendTimecode = defaults.bool(forKey: Keys.mtc)
@@ -141,7 +147,9 @@ public final class AudioSessionController {
 
     private func updateTransport() {
         if sendTimecode && isArmed {
-            if transport == nil { transport = try? LogicTransport() }
+            if transport == nil {
+                do { transport = try LogicTransport() } catch { interruption = error.localizedDescription }
+            }
             transport?.startTimecode(rate: mtcRate, clock: { Date() })
             transportRunning = transport?.isRunning ?? false
         } else {
@@ -178,15 +186,44 @@ public final class AudioSessionController {
             confirmTimer?.cancel()
             confirmTimer = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(Self.confirmTimeout))
-                guard !Task.isCancelled, let self, self.recorder.isRecording, self.recorder.current?.confirmedStart == nil else { return }
-                self.recorder.abort(reason: .cameraNeverStarted)
-                self.interruption = "Camera never started; take discarded"
-                self.transport?.stop()
+                guard !Task.isCancelled else { return }
+                self?.confirmTimedOut()
             }
         } catch {
             interruption = error.localizedDescription
         }
     }
+
+    public enum ConfirmOutcome: Equatable { case lateStart, neverStarted }
+    /// Pure decision for the confirm timeout (exposed so a test can check the logic without live audio
+    /// hardware, which `arm()` needs to ever get a take actually recording): `nil` — no `isCameraRecording`
+    /// wired up — behaves like the old code and aborts, matching "only abort when `isCameraRecording?() !=
+    /// true`".
+    nonisolated public static func confirmOutcome(cameraIsRecording: Bool?) -> ConfirmOutcome {
+        cameraIsRecording == true ? .lateStart : .neverStarted
+    }
+
+    /// The confirm timer's body, split out so a test can drive it directly instead of the real 5 s timer.
+    /// A missed `.started` milestone alone no longer deletes the take: if the camera turns out to still
+    /// be recording, this is treated as a late start (the milestone was coalesced, not lost) and the take
+    /// is kept; only when the camera is not recording does this abort as `.cameraNeverStarted`.
+    private func confirmTimedOut() {
+        guard recorder.isRecording, recorder.current?.confirmedStart == nil else { return }
+        switch Self.confirmOutcome(cameraIsRecording: isCameraRecording?()) {
+        case .lateStart:
+            recorder.cameraStarted(at: Date())
+            confirmTimer?.cancel(); confirmTimer = nil
+            meters.resetClip()
+            interruption = "Camera start was late; take kept"
+        case .neverStarted:
+            recorder.abort(reason: .cameraNeverStarted)
+            interruption = "Camera never started; take discarded"
+            transport?.stop()
+        }
+    }
+
+    /// For tests: runs exactly the confirm timer's body, without waiting for the real 5 s timeout.
+    func runConfirmCheckForTesting() { confirmTimedOut() }
 
     public func resetClip() { meters.resetClip() }
 

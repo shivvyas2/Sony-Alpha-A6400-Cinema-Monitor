@@ -41,6 +41,31 @@ final class AudioSessionControllerTests: XCTestCase {
         XCTAssertEqual(again.dayFolder.lastPathComponent, DayFolder.dayString(Date()))
     }
 
+    func testConfirmTimeoutKeepsTheTakeWhenTheCameraIsRolling() {
+        // Driving the real 5 s confirm timer end-to-end would need `recorder.isRecording` to actually be
+        // true, which needs `AudioSessionController.arm()` to succeed against live, permitted CoreAudio
+        // hardware — every other test in this file (and AudioInputTests) avoids that for the same reason.
+        // `confirmOutcome` is the pure decision `runConfirmCheckForTesting()`'s timer body switches on, so
+        // it's tested directly here instead: a late `.started` (camera still rolling) keeps the take,
+        // and the no-signal / already-stopped cases behave like the old unconditional abort.
+        XCTAssertEqual(AudioSessionController.confirmOutcome(cameraIsRecording: true), .lateStart, "camera is rolling: treat the missed milestone as late, keep the take")
+        XCTAssertEqual(AudioSessionController.confirmOutcome(cameraIsRecording: false), .neverStarted)
+        XCTAssertEqual(AudioSessionController.confirmOutcome(cameraIsRecording: nil), .neverStarted, "isCameraRecording not wired up: keeps the old behaviour (abort)")
+    }
+
+    @MainActor func testConfirmCheckHookIsSafeWhenNothingIsRecording() throws {
+        // `runConfirmCheckForTesting()` (the hook finding 5 asks for) must be a safe no-op outside a take,
+        // exactly like the real timer's guard.
+        let suite = "AudioSessionControllerTests-confirm-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let c = AudioSessionController(base: FileManager.default.temporaryDirectory.appendingPathComponent(suite), defaults: defaults)
+        c.isCameraRecording = { true }
+        c.runConfirmCheckForTesting()
+        XCTAssertNil(c.currentTake)
+        XCTAssertNil(c.interruption)
+    }
+
     @MainActor func testDeviceRemovalArmsReturnGateOnlyForThatDevice() async throws {
         let suite = "AudioSessionControllerTests-rearm-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

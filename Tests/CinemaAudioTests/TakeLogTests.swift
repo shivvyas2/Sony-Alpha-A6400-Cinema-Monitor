@@ -34,6 +34,18 @@ final class TakeLogTests: XCTestCase {
         XCTAssertEqual(TakeLog.load(from: try TestMedia.tempDir("empty")).takes, [])
     }
 
+    func testCorruptLogIsMovedAsideNotOverwritten() throws {
+        let dir = try TestMedia.tempDir("corrupt")
+        try "not valid json at all".write(to: dir.appendingPathComponent(TakeLog.fileName), atomically: true, encoding: .utf8)
+        var messages: [String] = []
+        let log = TakeLog.load(from: dir) { messages.append($0) }
+        XCTAssertEqual(log.takes, [])
+        XCTAssertEqual(messages.count, 1, "onCorrupt fired exactly once")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        XCTAssertTrue(entries.contains { $0.hasPrefix("\(TakeLog.fileName).corrupt-") }, "the bad file was moved aside, not deleted or left in place")
+        XCTAssertFalse(entries.contains(TakeLog.fileName), "takes.json itself is gone, so a later save can't silently overwrite the original corrupt contents")
+    }
+
     func testDayFolderAndUniqueNames() throws {
         var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
         let date = cal.date(from: DateComponents(year: 2026, month: 9, day: 15, hour: 12))!

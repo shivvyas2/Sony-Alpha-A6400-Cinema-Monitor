@@ -44,6 +44,17 @@ final class TakeSyncTests: XCTestCase {
         XCTAssertEqual(pairs[0].status, .estimated)
     }
 
+    func testPairingSkipsAnExtraTake() {
+        // An extra take (60 s) that matches neither clip sits between two that do; the walk must not
+        // stall on it — both later clips still find their matches instead of every clip after the extra
+        // take going unpaired.
+        let takes = [take(1, pressed: 100, wavSeconds: 64), take(2, pressed: 200, wavSeconds: 14), take(3, pressed: 300, wavSeconds: 34)]
+        let clips = [clip("C0001", duration: 10, at: 150), clip("C0002", duration: 30, at: 250)]
+        let pairs = TakeSync.pair(clips: clips, takes: takes)
+        XCTAssertEqual(pairs.map { $0.take?.label.clip }, [2, 3])
+        XCTAssertEqual(pairs.map(\.status), [.estimated, .estimated])
+    }
+
     func testInspectFindsClipsInFolderAndReadsDuration() async throws {
         let dir = try TestMedia.tempDir("inspect")
         let clipDir = dir.appendingPathComponent("PRIVATE/M4ROOT/CLIP")
@@ -69,6 +80,18 @@ final class TakeSyncTests: XCTestCase {
         let r = try await TakeSync.offset(clip: clip, wav: wav, around: 3.0, window: 5)
         XCTAssertEqual(r.offset, 3.5, accuracy: 0.002)
         XCTAssertGreaterThanOrEqual(r.confidence, 0.9)
+    }
+
+    func testOffsetOnALongWAVStaysAccurate() async throws {
+        // The fine stage used to envelope the whole decoded WAV; on a long take that's hundreds of MB.
+        // A 60 s WAV with the burst far from the start exercises the windowed slice (and its offset
+        // math) instead of the common case where the whole file happens to already be short.
+        let dir = try TestMedia.tempDir("offset-long")
+        let clip = dir.appendingPathComponent("C0001.MP4"), wav = dir.appendingPathComponent("A_0001_C001.wav")
+        try TestMedia.writeMovie(url: clip, seconds: 5, burstAt: 1.0)
+        try TestMedia.writeWAV(url: wav, seconds: 60, amplitude: 0.3, frequency: 440, burstAt: 40.0)
+        let r = try await TakeSync.offset(clip: clip, wav: wav, around: 39.0, window: 10)
+        XCTAssertEqual(r.offset, 39.0, accuracy: 0.01)
     }
 
     func testDecoderMonoAndTrackSelect() async throws {

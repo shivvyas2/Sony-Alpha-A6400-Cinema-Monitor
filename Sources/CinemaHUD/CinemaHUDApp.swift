@@ -218,6 +218,9 @@ struct ContentView: View {
             if connected { session.startBridge() } else { session.stopBridge() }
         }
         .task {
+            // Lets the 5 s confirm timeout check the camera itself before deleting a take's WAV, in case
+            // the `.started` milestone was coalesced away rather than never happening.
+            audio.isCameraRecording = { session.state.isRecording }
             // Dev convenience: CINEMAHUD_ADDRESS=127.0.0.1:8080 auto-connects (e.g. to tools/camerasim.py).
             DevHooks.apply(to: overlays)
             if let ov = ProcessInfo.processInfo.environment["CINEMAHUD_OVERLAYS"] {

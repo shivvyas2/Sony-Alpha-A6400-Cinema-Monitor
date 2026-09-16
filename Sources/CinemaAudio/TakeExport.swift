@@ -9,8 +9,12 @@ public enum TakeExport {
         }
     }
 
+    /// Named from `take.id`, not `take.label.fileStem`: `TakeRecorder` disambiguates same-label takes
+    /// (restarting the app mid-shoot resets `CameraSession.takes` to 0, so two takes can share a label)
+    /// by file name via `DayFolder.uniqueWAVName`, and that disambiguated name is stored in `take.id`.
+    /// Naming the export from the label alone would collide the two takes' WAVs onto one path.
     public static func outputs(for clip: ClipInfo, take: TakeRecord, in syncedFolder: URL) -> (wav: URL, mov: URL) {
-        (syncedFolder.appendingPathComponent("\(take.label.fileStem).wav"),
+        (syncedFolder.appendingPathComponent("\(take.id).wav"),
          syncedFolder.appendingPathComponent("\(clip.name)_synced.mov"))
     }
 

@@ -19,7 +19,15 @@ public enum BroadcastWave {
     }
     public struct Chunk: Equatable { public var id: String; public var offset: Int; public var size: Int }   // offset = start of the 8-byte header
 
-    public enum Error: Swift.Error { case notRIFF, truncated }
+    public enum Error: Swift.Error, LocalizedError {
+        case notRIFF, truncated
+        public var errorDescription: String? {
+            switch self {
+            case .notRIFF: return "Not a RIFF/WAVE file"
+            case .truncated: return "The WAV file is truncated"
+            }
+        }
+    }
 
     // MARK: Reading
 

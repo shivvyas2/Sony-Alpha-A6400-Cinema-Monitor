@@ -117,7 +117,12 @@ public final class AudioInput {
         meters.configure(channels: channels, sampleRate: sampleRate, deviceName: deviceName)
     }
 
-    /// Called on the audio thread with the selected channels. Copies once, then fans out off-thread.
+    /// Called on the audio thread with the selected channels, then fans out off-thread.
+    /// Deviation (cheap minor): every caller — the tap in `arm`, via `Self.select`, and tests, via their
+    /// own per-call buffer helpers — already hands `process` a freshly allocated buffer that nothing else
+    /// retains or mutates afterwards, so the extra defensive copy this used to make before fanning out to
+    /// sinks was pure overhead. Passing the buffer straight through is safe as long as that stays true; if
+    /// a future caller ever reused/mutated a buffer across calls, a copy would need to come back here.
     func process(_ buffer: AVAudioPCMBuffer) {
         ring?.write(buffer)
         let readings = MeterMath.measure(buffer)
@@ -127,8 +132,8 @@ public final class AudioInput {
             DispatchQueue.main.async { [meters] in meters.apply(readings, at: now) }
         }
         sinkLock.lock(); let targets = Array(sinks.values); sinkLock.unlock()
-        guard !targets.isEmpty, let copy = Self.copy(buffer) else { return }
-        sinkQueue.async { for t in targets { t(copy) } }
+        guard !targets.isEmpty else { return }
+        sinkQueue.async { for t in targets { t(buffer) } }
     }
 
     public func preroll(seconds: Double) -> AVAudioPCMBuffer {
@@ -155,13 +160,6 @@ public final class AudioInput {
             let c = min(max(0, ch - 1), Int(buffer.format.channelCount) - 1)
             dst[i].update(from: src[c], count: n)
         }
-        return out
-    }
-
-    static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength), let s = buffer.floatChannelData, let d = out.floatChannelData else { return nil }
-        out.frameLength = buffer.frameLength
-        for c in 0 ..< Int(buffer.format.channelCount) { d[c].update(from: s[c], count: Int(buffer.frameLength)) }
         return out
     }
 }
