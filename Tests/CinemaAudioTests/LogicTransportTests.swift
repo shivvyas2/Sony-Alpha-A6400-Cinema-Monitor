@@ -28,6 +28,29 @@ final class LogicTransportTests: XCTestCase {
         XCTAssertEqual(sent, [MIDIMessages.mmcRecordStrobe, MIDIMessages.mmcStop, MIDIMessages.mmcPlay])
     }
 
+    func testStopWaitsForInFlightTick() throws {
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        var finished = false
+        var isFirst = true
+        let lock = NSLock()
+        let t = try LogicTransport(send: { _ in
+            lock.lock()
+            let first = isFirst; isFirst = false
+            lock.unlock()
+            if first {
+                started.signal()
+                release.wait()                       // hold the tick until the test lets go
+                lock.lock(); finished = true; lock.unlock()
+            }
+        })
+        t.startTimecode(rate: .fps24, clock: { Date() })
+        XCTAssertEqual(started.wait(timeout: .now() + 2), .success, "a tick started")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { release.signal() }
+        t.stopTimecode()                         // must block until the held tick completes
+        lock.lock(); XCTAssertTrue(finished, "stopTimecode returned before the in-flight tick finished"); lock.unlock()
+    }
+
     func testRealSourceCanBeCreated() throws {
         let t = try LogicTransport(sourceName: "CinemaHUD Test")
         t.recordStrobe()          // must not crash without a receiver

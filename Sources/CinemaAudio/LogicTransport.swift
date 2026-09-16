@@ -33,6 +33,7 @@ public final class LogicTransport {
 
     deinit {
         stopTimecode()
+        timerQueue.sync {}   // drain any queued MMC sends before disposing
         if source != 0 { MIDIEndpointDispose(source) }
         if client != 0 { MIDIClientDispose(client) }
     }
@@ -51,12 +52,14 @@ public final class LogicTransport {
     }
 
     public func stopTimecode() {
+        dispatchPrecondition(condition: .notOnQueue(timerQueue))
         timer?.cancel(); timer = nil
         isRunning = false
+        timerQueue.sync {}   // let any in-flight tick finish before we return
     }
 
-    public func recordStrobe() { send(MIDIMessages.mmcRecordStrobe) }
-    public func stop() { send(MIDIMessages.mmcStop) }
-    public func play() { send(MIDIMessages.mmcPlay) }
+    public func recordStrobe() { timerQueue.sync { [send] in send(MIDIMessages.mmcRecordStrobe) } }
+    public func stop() { timerQueue.sync { [send] in send(MIDIMessages.mmcStop) } }
+    public func play() { timerQueue.sync { [send] in send(MIDIMessages.mmcPlay) } }
 }
 #endif
