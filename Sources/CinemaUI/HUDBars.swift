@@ -291,6 +291,9 @@ struct BottomStrip: View {
         let s = session.state
         let rec = s.isRecording
         return HStack(spacing: 0) {
+            #if os(macOS)
+            AudioMeterItem()
+            #endif
             if let m = s.recordableMinutes { item("MEDIA", String(format: "%d:%02d h", m / 60, m % 60)) }
             else if let n = s.shotsRemaining { item("MEDIA", "\(n)") }
             else { item("MEDIA", "--") }
@@ -470,6 +473,9 @@ struct SettingsPanel: View {
                         row("Camera index") { Picker("", selection: $ov.cameraIndex) { ForEach(["A", "B", "C", "D"], id: \.self) { Text($0).tag($0) } } }
                         row("Reel") { Stepper(value: $ov.reel, in: 1 ... 999) { Text(String(format: "%04d", overlays.reel)).font(Theme.mono(12)) } }
                     }
+                    #if os(macOS)
+                    AudioSettingsSection()
+                    #endif
                     ForEach(["Exposure", "Focus", "Shooting", "Image"], id: \.self) { g in
                         if let items = groups[g], !items.isEmpty {
                             section(g) {
