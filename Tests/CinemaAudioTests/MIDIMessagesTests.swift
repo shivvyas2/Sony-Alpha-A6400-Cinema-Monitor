@@ -48,4 +48,14 @@ final class MIDIMessagesTests: XCTestCase {
         XCTAssertEqual(seq.next()[0], 0xF0, "resync with a full frame after a gap")
         XCTAssertEqual(seq.next(), [0xF1, 0x00])
     }
+
+    func testOutOfRangeValuesAreMaskedNotTrapped() {
+        let bad = Timecode(h: 40, m: 70, s: -1, f: 300)
+        let full = MIDIMessages.mtcFullFrame(bad, rate: .fps24)
+        XCTAssertEqual(full.count, 10)
+        XCTAssertEqual(full[5], 40 & 0x1F)
+        XCTAssertEqual(full[6], UInt8(70 & 0x3F))
+        XCTAssertEqual(full[8], UInt8(300 & 0x1F))
+        XCTAssertEqual(MIDIMessages.mtcQuarterFrame(index: 9, bad, rate: .fps24)[1] >> 4, 1, "index wraps to 0…7")
+    }
 }

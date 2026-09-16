@@ -21,10 +21,12 @@ public struct Timecode: Equatable, Sendable {
 
 public enum MIDIMessages {
     public static func mtcFullFrame(_ tc: Timecode, rate: MTCRate) -> [UInt8] {
-        [0xF0, 0x7F, 0x7F, 0x01, 0x01, UInt8(rate.rawValue << 5) | UInt8(tc.h & 0x1F), UInt8(tc.m), UInt8(tc.s), UInt8(tc.f), 0xF7]
+        [0xF0, 0x7F, 0x7F, 0x01, 0x01,
+         (rate.rawValue << 5) | UInt8(tc.h & 0x1F), UInt8(tc.m & 0x3F), UInt8(tc.s & 0x3F), UInt8(tc.f & 0x1F), 0xF7]
     }
     /// Quarter frame `index` (0…7) for `tc`: F1 followed by (index << 4 | nibble).
     public static func mtcQuarterFrame(index: Int, _ tc: Timecode, rate: MTCRate) -> [UInt8] {
+        let index = index & 0x07
         let nibble: Int
         switch index {
         case 0: nibble = tc.f & 0x0F
