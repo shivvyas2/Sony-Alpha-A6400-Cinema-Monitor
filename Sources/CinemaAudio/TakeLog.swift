@@ -52,15 +52,40 @@ public struct TakeLog: Codable, Equatable {
     public var takes: [TakeRecord] = []
     public init() {}
 
+    /// ISO-8601 with milliseconds; decoding also accepts plain-second timestamps.
+    private static let dateFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
+    }()
+    private static let plainDateFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
+    }()
+    static func decoder() -> JSONDecoder {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .custom { decoder in
+            let s = try decoder.singleValueContainer().decode(String.self)
+            if let d = dateFormatter.date(from: s) ?? plainDateFormatter.date(from: s) { return d }
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Bad date: \(s)"))
+        }
+        return dec
+    }
+    static func encoder() -> JSONEncoder {
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .custom { date, encoder in
+            var c = encoder.singleValueContainer(); try c.encode(dateFormatter.string(from: date))
+        }
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return enc
+    }
+
     public static func load(from folder: URL) -> TakeLog {
         let url = folder.appendingPathComponent(fileName)
         guard let data = try? Data(contentsOf: url) else { return TakeLog() }
-        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        let dec = Self.decoder()
         return (try? dec.decode(TakeLog.self, from: data)) ?? TakeLog()
     }
 
     public func save(to folder: URL) throws {
-        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601; enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let enc = Self.encoder()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try enc.encode(self).write(to: folder.appendingPathComponent(Self.fileName), options: .atomic)
     }
