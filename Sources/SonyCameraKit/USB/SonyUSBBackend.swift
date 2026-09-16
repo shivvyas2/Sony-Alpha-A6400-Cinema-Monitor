@@ -41,7 +41,7 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
         guard let entry = PTPUSBTransport.stillImageInterfaces().first(where: { $0.info.id == usbDevice.id }) else {
             throw USBTransportError("Camera not found on USB. Set the camera's USB Connection to “PC Remote” and reconnect the cable.")
         }
-        let transport = try PTPUSBTransport(service: entry.service, name: usbDevice.name)
+        let transport = try await Self.openTransport(entry.service, name: usbDevice.name)
         transport.drain()
         let dev = PTPDevice(transport: transport)
         device = dev
@@ -50,6 +50,24 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
         try await sonyHandshake(dev)
         let s = try await refreshState()
         return s
+    }
+
+    /// Opens the PTP interface. macOS's Image Capture daemon (ptpcamerad) claims every PTP camera at
+    /// plug-in and holds it even with Photos closed, so the first open usually fails. Stopping the
+    /// daemon is harmless (launchd restarts it), but it comes back within seconds, so open right after.
+    private static func openTransport(_ service: io_service_t, name: String) async throws -> PTPUSBTransport {
+        do {
+            return try PTPUSBTransport(service: service, name: name)
+        } catch let e as USBTransportError where e.heldBy?.isSystemPTPDaemon == true {
+            guard PTPUSBTransport.release(e.heldBy!) else {
+                throw USBTransportError("macOS's Image Capture service holds the camera and could not be stopped. Unplug and replug the camera, then try again.")
+            }
+            for _ in 0 ..< 20 {
+                try await Task.sleep(for: .milliseconds(100))
+                if let t = try? PTPUSBTransport(service: service, name: name) { return t }
+            }
+            throw USBTransportError("macOS's Image Capture service took the camera back before CinemaHUD could open it. Click Connect USB again.")
+        }
     }
 
     /// The SDIO connect sequence Sony cameras require before any vendor operation works.

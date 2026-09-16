@@ -13,7 +13,9 @@ public struct USBCameraDevice: Sendable, Identifiable, Equatable {
 
 public struct USBTransportError: Error, LocalizedError, Sendable {
     public let message: String
-    public init(_ m: String) { message = m }
+    /// Set when the interface could not be opened because another process has it.
+    public let heldBy: USBInterfaceHolder?
+    public init(_ m: String, heldBy: USBInterfaceHolder? = nil) { message = m; self.heldBy = heldBy }
     public var errorDescription: String? { message }
 }
 
@@ -45,6 +47,30 @@ final class PTPUSBTransport: @unchecked Sendable {
         return out
     }
 
+    /// Whoever has this interface open right now. IOUSBHost opens are exclusive, so a holder means
+    /// our own open will fail (with a generic "internal error", not "exclusive access").
+    static func holder(of service: io_service_t) -> USBInterfaceHolder? {
+        var children: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(service, kIOServicePlane, &children) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(children) }
+        while case let child = IOIteratorNext(children), child != 0 {
+            defer { IOObjectRelease(child) }
+            guard IOObjectConformsTo(child, "IOUserClient") != 0,
+                  let creator = IORegistryEntryCreateCFProperty(child, "IOUserClientCreator" as CFString, kCFAllocatorDefault, 0)?
+                      .takeRetainedValue() as? String,
+                  let holder = USBInterfaceHolder.parse(creator: creator) else { continue }
+            return holder
+        }
+        return nil
+    }
+
+    /// Stops the Image Capture daemon so the interface can be opened. It ignores SIGTERM, and
+    /// launchd brings it back within seconds, so the caller must open the interface immediately.
+    static func release(_ holder: USBInterfaceHolder) -> Bool {
+        guard holder.isSystemPTPDaemon else { return false }
+        return kill(holder.pid, SIGKILL) == 0
+    }
+
     private static func property(_ s: io_service_t, _ key: String) -> Any? {
         // Properties live on the parent device; search upwards.
         IORegistryEntrySearchCFProperty(s, kIOServicePlane, key as CFString, kCFAllocatorDefault,
@@ -56,11 +82,10 @@ final class PTPUSBTransport: @unchecked Sendable {
         do {
             interface = try IOUSBHostInterface(__ioService: service, options: [], queue: nil, interestHandler: nil)
         } catch {
-            let ns = error as NSError
-            if ns.code == Int(kIOReturnExclusiveAccess) || ns.code == Int(kIOReturnNotPermitted) {
-                throw USBTransportError("Another process holds the camera (usually macOS's Image Capture service). Quit Photos / Image Capture, unplug and replug the camera, then try again.")
+            if let holder = Self.holder(of: service) {
+                throw USBTransportError("Another app holds the camera (\(holder.name)). Quit it, then click Connect USB again.", heldBy: holder)
             }
-            throw USBTransportError("Could not open USB interface: \(ns.localizedDescription)")
+            throw USBTransportError("Could not open USB interface: \((error as NSError).localizedDescription)")
         }
         // Walk endpoints to find the bulk in/out pipes.
         var inAddr: Int?, outAddr: Int?, outMax = 512

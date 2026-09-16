@@ -19,7 +19,9 @@ the same protocol PlayMemories Mobile / Imaging Edge Mobile use). No Sony softwa
 2. Connect the USB cable, open **CinemaHUD**, click **Connect USB**.
 
 If the camera mounts as a drive instead, it is still in Mass Storage mode: eject it, change the
-setting, and reconnect. If macOS's Image Capture or Photos has grabbed the camera, quit them and replug.
+setting, and reconnect. macOS's Image Capture service grabs every PTP camera at plug-in; CinemaHUD
+releases it automatically when you click Connect USB. If a different app (Imaging Edge, Capture One)
+holds the camera, the error names it: quit that app and connect again.
 
 ### Wi-Fi
 
