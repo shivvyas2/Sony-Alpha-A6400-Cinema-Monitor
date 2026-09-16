@@ -30,7 +30,7 @@ struct AudioMeterItem: View {
                 }
             }
             .padding(.horizontal, 10)
-            .help(audio.interruption ?? audio.armError ?? "Audio interface armed")
+            .help(audio.interruption ?? "Audio interface armed")
         }
     }
 }
@@ -41,9 +41,9 @@ struct MeterBar: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Rectangle().fill(Color.white.opacity(0.14))
-            Rectangle().fill(channel.clipped ? Theme.rec : Theme.text).frame(width: width * MeterScale.fraction(channel.rms))
-            Rectangle().fill(channel.clipped ? Theme.rec : Theme.text).frame(width: 1).offset(x: max(0, width * MeterScale.fraction(channel.hold) - 1))
+            Rectangle().fill(channel.clipped ? Theme.rec : Color.white.opacity(0.14))
+            Rectangle().fill(channel.clipped ? Theme.rec.opacity(0.6) : Theme.text).frame(width: width * MeterScale.fraction(channel.rms))
+            Rectangle().fill(channel.clipped ? Color.white : Theme.text).frame(width: 1).offset(x: max(0, width * MeterScale.fraction(channel.hold) - 1))
         }
         .frame(width: width, height: height)
         .accessibilityLabel("Audio level \(Int(channel.rms)) dBFS")
