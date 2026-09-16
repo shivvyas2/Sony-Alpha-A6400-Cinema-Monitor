@@ -4,3 +4,10 @@ build/
 .DS_Store
 .swiftpm/
 .claude/
+
+# Xcode per-user state: window layout, scheme selection. Regenerated on every open.
+xcuserdata/
+*.xcuserstate
+
+# Cached release rules (local scratch)
+.omc/
