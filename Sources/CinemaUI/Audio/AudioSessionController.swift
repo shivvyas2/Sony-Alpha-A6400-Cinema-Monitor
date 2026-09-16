@@ -38,6 +38,7 @@ public final class AudioSessionController {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var confirmTimer: Task<Void, Never>?
     @ObservationIgnored private var deviceWatch: Task<Void, Never>?
+    @ObservationIgnored private var awaitingReturnOfDeviceUID: String?
     private enum Keys { static let device = "audio.deviceUID", channels = "audio.channels", mtc = "audio.mtc", scene = "audio.scene" }
 
     public init(base: URL? = nil, defaults: UserDefaults = .standard) {
@@ -68,12 +69,18 @@ public final class AudioSessionController {
         }
     }
 
+    deinit {
+        deviceWatch?.cancel()
+        confirmTimer?.cancel()
+    }
+
     // MARK: Devices and arming
 
     public func refreshDevices() { devices = AudioDevices.inputs() }
 
     /// Picks (and persists) a device and channels, asks for microphone permission once, and arms.
     public func arm(deviceUID: String?, channels: [Int]) async {
+        awaitingReturnOfDeviceUID = nil
         selectedDeviceUID = deviceUID
         defaults.set(deviceUID, forKey: Keys.device)
         selectedChannels = channels
@@ -100,6 +107,7 @@ public final class AudioSessionController {
     public func setChannels(_ channels: [Int]) async { await arm(deviceUID: selectedDeviceUID, channels: channels) }
 
     public func disarm() {
+        awaitingReturnOfDeviceUID = nil
         if recorder.isRecording { recorder.abort(reason: .interrupted("disarmed")) }
         input.disarm()
         isArmed = false
@@ -109,18 +117,22 @@ public final class AudioSessionController {
     private func interrupted(_ reason: AudioInputInterruption) {
         isArmed = false
         switch reason {
-        case .deviceRemoved: interruption = "Audio device removed"
-        case .configurationChanged: interruption = "Audio configuration changed"
-        case .engineStopped(let m): interruption = m
+        case .deviceRemoved: interruption = "Audio device removed"; awaitingReturnOfDeviceUID = selectedDeviceUID
+        case .configurationChanged: interruption = "Audio configuration changed"; awaitingReturnOfDeviceUID = nil
+        case .engineStopped(let m): interruption = m; awaitingReturnOfDeviceUID = nil
         }
         if recorder.isRecording { recorder.abort(reason: .interrupted(interruption ?? "interrupted")) }
         updateTransport()
     }
 
     private func reArmIfDeviceReturned() {
-        guard !isArmed, interruption == "Audio device removed", let uid = selectedDeviceUID, devices.contains(where: { $0.uid == uid }) else { return }
+        guard !isArmed, let uid = awaitingReturnOfDeviceUID, devices.contains(where: { $0.uid == uid }) else { return }
+        awaitingReturnOfDeviceUID = nil
         Task { await arm(deviceUID: uid, channels: selectedChannels) }
     }
+
+    /// for tests: lets a test simulate an `AudioInput` interruption without arming real hardware.
+    func simulateInterruption(_ reason: AudioInputInterruption) { interrupted(reason) }
 
     // MARK: Logic transport
 

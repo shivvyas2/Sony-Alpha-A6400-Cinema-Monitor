@@ -40,5 +40,20 @@ final class AudioSessionControllerTests: XCTestCase {
         XCTAssertEqual(again.scene, "5")
         XCTAssertEqual(again.dayFolder.lastPathComponent, DayFolder.dayString(Date()))
     }
+
+    @MainActor func testDeviceRemovalArmsReturnGateOnlyForThatDevice() throws {
+        let suite = "AudioSessionControllerTests-rearm-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let c = AudioSessionController(base: FileManager.default.temporaryDirectory.appendingPathComponent(suite), defaults: defaults)
+        c.simulateInterruption(.deviceRemoved)
+        XCTAssertEqual(c.interruption, "Audio device removed")
+        XCTAssertFalse(c.isArmed)
+        c.simulateInterruption(.configurationChanged)
+        XCTAssertEqual(c.interruption, "Audio configuration changed")
+        // No device was ever selected, so nothing is awaited; refreshDevices() must not attempt an arm.
+        c.refreshDevices()
+        XCTAssertFalse(c.isArmed)
+    }
 }
 #endif
