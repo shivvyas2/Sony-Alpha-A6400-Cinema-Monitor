@@ -181,6 +181,36 @@ which is the camera's limit for this protocol, not the app's. The app polls cont
 displays each frame as soon as it arrives. For full-resolution, 30/60 fps monitoring use the
 camera's HDMI output into a UVC capture device; that is the next planned video source.
 
+### Field audio (Mac)
+
+The α6400 has no headphone jack and records 16-bit sound from its own preamps. CinemaHUD can be the
+sound recorder instead: **Audio ▸ Input** picks any Core Audio interface (a Focusrite Scarlett, for
+example), **Audio ▸ Channels** picks up to eight inputs, and the bottom strip shows the source, its
+rate and a level bar per channel (red = clipped since the last take; **Audio ▸ Reset Clip Indicators**).
+Phantom power is a hardware switch on the interface; the app cannot see or set it.
+
+Every take is recorded to `~/Movies/CinemaHUD/<yyyy-MM-dd>/audio/<camera>_<reel>_C<clip>.wav`
+(48 kHz, 24-bit) with 3 s of pre-roll before the REC press and 1 s after the body stops, whether REC
+was pressed in the app or on the camera. The WAV carries Broadcast Wave timecode (time of day, the
+same numbers as the TC readout) and iXML scene/take metadata (**Audio ▸ Scene & Note…**). `takes.json`
+in the day folder lists every take with its timestamps.
+
+**Logic Pro.** **Audio ▸ Send Timecode to Logic** (⇧⌘M) publishes a virtual MIDI source named
+"CinemaHUD" that sends MIDI Timecode at the project frame rate and MMC record/stop on every take.
+In Logic: File ▸ Project Settings ▸ Synchronization ▸ Sync Mode = **MTC** with the same frame rate;
+Settings ▸ MIDI ▸ Sync ▸ **Listen to MMC Input** on; and "CinemaHUD" enabled under MIDI inputs.
+Logic then starts recording on REC and its regions sit at the same timecode as the WAVs.
+
+**Sync Takes (⌘Y).** After the shoot, drop the card's `PRIVATE/M4ROOT/CLIP` folder (or individual
+clips) on the window. The app pairs each clip with a take by order and length, then **Sync All** finds
+the exact offset by cross-correlating the clip's own audio against the WAV (feeding the interface's
+line out into the camera's mic input makes this bulletproof; the built-in mic usually works too).
+**Export** writes, into `<day>/synced/`: a trimmed WAV that starts with the clip, a `.mov` with the
+video untouched and the interface audio as track 1 (camera audio kept as track 2), and
+`CinemaHUD_<day>.fcpxml`. In Final Cut Pro, File ▸ Import ▸ XML brings in an event with every clip
+already synced (camera audio muted, WAV connected); Resolve imports the same file.
+Rows marked "Low confidence" use the estimate from the take log; check them in the editor.
+
 ### Verified on hardware (α6400, firmware 2.00, USB)
 
 Connect, live view, shutter / iris / ISO stepping (lands on the nearest value the current mode
@@ -190,6 +220,10 @@ where the body ignores them; test them in a stills mode.
 
 Photo mode: RAW+JPEG transfer, body-triggered transfer, auto review and the focus verdict have been
 exercised against the simulator only; hardware verification pending.
+
+Field audio: arm a Scarlett 2i2 (meters follow input) — pending; REC on the α6400 produces a WAV of
+clip length + ~4 s — pending; Logic 11 chases MTC and records on REC — pending; Sync Takes on a real
+card gives "Synced" rows — pending; Final Cut Pro imports the FCPXML with clips in sync — pending.
 
 ## iPhone and iPad
 
