@@ -23,7 +23,8 @@ targets:
       properties:
         CFBundleDisplayName: CinemaHUD
         CFBundleShortVersionString: "2.4.1"
-        CFBundleVersion: "8"
+        CFBundleVersion: "9"
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortrait]

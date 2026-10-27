@@ -89,6 +89,7 @@ threading.Thread(target=rec_ticker, daemon=True).start()
 
 # ---------- frame rendering ----------
 FONT = None
+LABEL = True   # stamp the simulated exposure on each frame (off with --no-label, for clean screenshots)
 PHOTO = None   # PIL image served as the live view when --photo is given
 PHOTO_SIZED = {}
 for cand in ["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/SFNSMono.ttf", "/Library/Fonts/Arial.ttf"]:
@@ -129,7 +130,7 @@ def render_frame(t, w=1024, h=680):
         for i in range(6):
             c = int(min(255, (90 + 25 * i) * gain))
             d.rectangle([cx - 120 + i * 20, cy - 80 + i * 14, cx + 120 - i * 20, cy + 80 - i * 14], outline=(c, c, c), width=3)
-    d.text((24, h - 44), f"SIM  {CAM.shutter}  F{CAM.fnumber}  ISO {CAM.iso}  {CAM.focus_mode}", fill=(255, 255, 255), font=FONT)
+    if LABEL: d.text((24, h - 44), f"SIM  {CAM.shutter}  F{CAM.fnumber}  ISO {CAM.iso}  {CAM.focus_mode}", fill=(255, 255, 255), font=FONT)
     buf = io.BytesIO(); img.save(buf, "JPEG", quality=80); return buf.getvalue()
 
 def liveview_packet(seq, jpeg):
@@ -273,8 +274,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--port", type=int, default=8080); ap.add_argument("--fps", type=float, default=24); ap.add_argument("--no-ssdp", action="store_true")
     ap.add_argument("--stills", action="store_true", help="start with the mode dial on a still position (photo mode)")
     ap.add_argument("--pz", action="store_true", help="pretend a power-zoom lens is mounted (actZoom + zoomInformation)")
+    ap.add_argument("--no-label", action="store_true", help="don't stamp the simulated exposure on the frames (clean screenshots)")
     ap.add_argument("--photo", help="serve this JPEG/PNG as the live view (exposure gain still applies); use a photo with a face to try Shot Assist")
     a = ap.parse_args()
+    if a.no_label: LABEL = False
     if a.photo: PHOTO = Image.open(a.photo).convert("RGB")
     if a.stills: CAM.shoot_mode = "still"
     if a.pz: CAM.pz = True

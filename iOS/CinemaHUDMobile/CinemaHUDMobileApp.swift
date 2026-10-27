@@ -46,6 +46,9 @@ struct MobileRootView: View {
         .ignoresSafeArea(edges: .bottom)
         .onChange(of: session.state.shootMode, initial: true) { _, dial in overlays.modeResolver.dial(dial) }
         .task {
+            #if DEBUG
+            if let ov = ProcessInfo.processInfo.environment["CINEMAHUD_OVERLAYS"] { overlays.applyDevFlags(ov) }
+            #endif
             // Simulator convenience: CINEMAHUD_ADDRESS=127.0.0.1:8080 auto-connects to tools/camerasim.py on the Mac.
             if let addr = ProcessInfo.processInfo.environment["CINEMAHUD_ADDRESS"], session.phase == .idle {
                 await session.connect(toAddress: addr)

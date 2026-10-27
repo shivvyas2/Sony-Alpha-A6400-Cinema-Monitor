@@ -10,6 +10,7 @@ public struct MobileCameraView: View {
     @Environment(OverlaySettings.self) private var overlays
     @State private var processor = FrameProcessor()
     @State private var processed: CIImage?
+    @State private var scope: CGImage?
     @State private var meter = LiveSharpnessMeter()
     @State private var liveSharpness: Double = 0
     @State private var afFlash = false
@@ -61,6 +62,7 @@ public struct MobileCameraView: View {
         .onChange(of: overlays.peakingColor) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.zebra) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.falseColor) { _, _ in reprocess(session.frame) }
+        .onChange(of: overlays.scope) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.lutOn) { _, _ in processor.lutCube = overlays.activeLUT; reprocess(session.frame) }
         .onChange(of: overlays.profile) { _, _ in processor.lutCube = overlays.activeLUT; reprocess(session.frame) }
         .onChange(of: overlays.feedColorSpace) { _, _ in reprocess(session.frame) }
@@ -368,6 +370,15 @@ public struct MobileCameraView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { afFlash = false }
                         Task { await session.touchAF(x: x, y: y) }
                     }
+                if let scope, overlays.scope != .none, overlays.shootingMode == .video {
+                    // Scaled to stay inside short pictures (portrait phone), above the sharpness meter.
+                    let k = min(1, rect.height * 0.5 / (CGFloat(scope.height) + 30))
+                    ScopeInset(kind: overlays.scope, image: scope)
+                        .scaleEffect(k, anchor: .bottomLeading)
+                        .padding(.leading, 10).padding(.bottom, 48)
+                        .frame(width: rect.width, height: rect.height, alignment: .bottomLeading)
+                        .position(x: rect.midX, y: rect.midY)
+                }
                 if overlays.showSharpnessMeter || overlays.shootingMode == .photo {
                     HStack(spacing: 8) { FocusDot(status: s.focusStatus); SharpnessBar(ratio: liveSharpness) }
                         .padding(8).background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
@@ -413,7 +424,7 @@ public struct MobileCameraView: View {
     }
 
     private func reprocess(_ frame: CIImage?) {
-        guard let frame else { processed = nil; return }
+        guard let frame else { processed = nil; scope = nil; return }
         let source = frame.matchedToWorkingSpace(from: overlays.feedColorSpace.cgColorSpace) ?? frame
         let video = overlays.shootingMode == .video
         processed = processor.pipeline(source, peaking: overlays.peaking, zebra: video && overlays.zebra, zebraLevel: overlays.zebraLevel,
@@ -421,6 +432,22 @@ public struct MobileCameraView: View {
         if overlays.showSharpnessMeter || overlays.shootingMode == .photo {
             let point = session.focusCheckPoint ?? session.state.touchAFPoint.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
             meter.measure(frame, afPoint: point) { r in liveSharpness = r }
+        }
+        // Scopes read the picture after the LUT, before effects paint on it (as on the Mac).
+        let kind = overlays.scope
+        guard video, kind != .none else { scope = nil; return }
+        let p = processor
+        let base = p.pipeline(source, peaking: false, zebra: false, zebraLevel: 1, falseColor: false, rotation: 0, effects: false)
+        Task.detached(priority: .utility) {
+            let sc: CGImage?
+            switch kind {
+            case .none: sc = nil
+            case .waveform: sc = p.waveform(base)
+            case .parade: sc = p.parade(base)
+            case .histogram: sc = p.histogram(base)
+            case .vector: sc = p.vectorscope(base)
+            }
+            await MainActor.run { scope = sc }
         }
     }
 

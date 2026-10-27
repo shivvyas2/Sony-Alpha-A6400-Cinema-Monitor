@@ -283,36 +283,7 @@ enum DevHooks {
 
     static func apply(to overlays: OverlaySettings) {
         guard let spec = env["CINEMAHUD_OVERLAYS"] else { return }
-        for tok in spec.lowercased().split(separator: ",") {
-            switch tok {
-            case "peaking": overlays.peaking = true
-            case "zebra": overlays.zebra = true
-            case "grid": overlays.grid = true
-            case "nogrid": overlays.grid = false
-            case "guides": overlays.frameGuides = true
-            case "hidehud": overlays.hideHUD = true
-            case "enhanced": overlays.enhanced = true
-            case "detail": overlays.detail = true
-            case "rec709": overlays.feedColorSpace = .rec709
-            case "false": overlays.falseColor = true
-            case "waveform": overlays.scope = .waveform
-            case "parade": overlays.scope = .parade
-            case "hist": overlays.scope = .histogram
-            case "vector": overlays.scope = .vector
-            case "photo": overlays.modeResolver.toggle()
-            case "menu": overlays.showMenu = true
-            case "magnify": overlays.magnify = true
-            case "rot90": overlays.rotation = 90
-            case "slog3": overlays.profile = .pp8
-            case "log": overlays.lutOn = false
-            case "motion": NotificationCenter.default.post(name: .init("CinemaHUD.devMotion"), object: nil)
-            default:
-                if tok.hasPrefix("crop=") {
-                    let v = tok.dropFirst(5)
-                    overlays.crop = CropRatio.allCases.first { $0.label.lowercased() == v } ?? .native
-                }
-            }
-        }
+        overlays.applyDevFlags(spec)
     }
 
     static func scheduleSnapshot() {

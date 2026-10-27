@@ -133,3 +133,39 @@ public enum ScopeKind: String, CaseIterable, Identifiable {
     }
 }
 
+extension OverlaySettings {
+    /// Dev hook for scripted screenshots: applies a comma-separated list of overlay tokens
+    /// (`CINEMAHUD_OVERLAYS=peaking,waveform,crop=2.39`). The Mac and iOS apps both read it.
+    public func applyDevFlags(_ spec: String) {
+        for tok in spec.lowercased().split(separator: ",") {
+            switch tok {
+            case "peaking": peaking = true
+            case "zebra": zebra = true
+            case "grid": grid = true
+            case "nogrid": grid = false
+            case "guides": frameGuides = true
+            case "hidehud": hideHUD = true
+            case "enhanced": enhanced = true
+            case "detail": detail = true
+            case "rec709": feedColorSpace = .rec709
+            case "false": falseColor = true
+            case "waveform": scope = .waveform
+            case "parade": scope = .parade
+            case "hist": scope = .histogram
+            case "vector": scope = .vector
+            case "photo": modeResolver.toggle()
+            case "menu": showMenu = true
+            case "magnify": magnify = true
+            case "rot90": rotation = 90
+            case "slog3": profile = .pp8
+            case "log": lutOn = false
+            case "motion": NotificationCenter.default.post(name: .init("CinemaHUD.devMotion"), object: nil)
+            default:
+                if tok.hasPrefix("crop=") {
+                    let v = tok.dropFirst(5)
+                    crop = CropRatio.allCases.first { $0.label.lowercased() == v } ?? .native
+                }
+            }
+        }
+    }
+}

@@ -5,7 +5,7 @@
     <key>CFBundleName</key><string>CinemaHUD</string>
     <key>CFBundleDisplayName</key><string>CinemaHUD</string>
     <key>CFBundleIdentifier</key><string>com.shivvyas.cinemahud</string>
-    <key>CFBundleVersion</key><string>8</string>
+    <key>CFBundleVersion</key><string>9</string>
     <key>CFBundleShortVersionString</key><string>2.4.1</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleExecutable</key><string>CinemaHUD</string>
