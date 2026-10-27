@@ -6,6 +6,7 @@
 # Each shot restarts the fake camera serving <frames-dir>/<frame>.jpg as live view, relaunches the
 # app with CINEMAHUD_OVERLAYS=<overlays> (Debug builds only), and saves <out-dir>/<name>.png.
 # Install a landscape-only build for the viewfinder layout, or the normal build for portrait.
+# CAPTURE_DISPLAY picks the panel on multi-display devices (iPhone Duo: primary or primary-1).
 set -euo pipefail
 sim=$1 out=$2 frames=$3; shift 3
 repo=${0:A:h:h:h:h}
@@ -22,7 +23,7 @@ for spec in "$@"; do
     SIMCTL_CHILD_CINEMAHUD_NO_INTRO=1 SIMCTL_CHILD_CINEMAHUD_ADDRESS=127.0.0.1:8080 \
         SIMCTL_CHILD_CINEMAHUD_OVERLAYS="$overlays" xcrun simctl launch "$sim" "$bundle" >/dev/null
     sleep 11
-    xcrun simctl io "$sim" screenshot "$out/$name.png" >/dev/null 2>&1
+    xcrun simctl io "$sim" screenshot ${CAPTURE_DISPLAY:+--display="$CAPTURE_DISPLAY"} "$out/$name.png" >/dev/null 2>&1
     kill $cam 2>/dev/null || true
     echo "$name"
 done

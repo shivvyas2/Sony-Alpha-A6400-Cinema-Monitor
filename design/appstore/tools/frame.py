@@ -130,7 +130,7 @@ def compose(shot_path, title, subtitle, chrome_dir, mask_path, kind):
     draw = ImageDraw.Draw(out)
 
     unit = h / 100  # layout in hundredths of the canvas height
-    title_font, sub_font = font(round(unit * {"phone": 7.2, "duo": 5.6}.get(kind, 5.0)), 700), font(round(unit * {"phone": 3.4, "duo": 2.7}.get(kind, 2.4)), 500)
+    title_font, sub_font = font(round(unit * {"phone": 7.2, "duo": 4.3}.get(kind, 5.0)), 700), font(round(unit * {"phone": 3.4, "duo": 2.2}.get(kind, 2.4)), 500)
     ty = unit * {"phone": 5.5}.get(kind, 5.0)
     draw.text((w / 2, ty), title, font=title_font, fill=TEXT, anchor="mt")
     sy = ty + title_font.size * 1.22
