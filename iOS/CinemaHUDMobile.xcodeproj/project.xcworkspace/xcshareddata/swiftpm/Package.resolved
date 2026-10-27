@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "duokit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/shivvyas2/DuoKit",
+      "state" : {
+        "revision" : "e54f60888cf3828445ab91359fdbcb7dbed5d493",
+        "version" : "0.1.0"
+      }
+    }
+  ],
+  "version" : 2
+}

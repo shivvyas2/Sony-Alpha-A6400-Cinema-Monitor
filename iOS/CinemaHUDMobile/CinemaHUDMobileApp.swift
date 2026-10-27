@@ -1,6 +1,7 @@
 import SwiftUI
 import SonyCameraKit
 import CinemaUI
+import DuoKit
 
 @main
 struct CinemaHUDMobileApp: App {
@@ -15,7 +16,26 @@ struct CinemaHUDMobileApp: App {
                 .preferredColorScheme(.dark)
                 .statusBarHidden(true)
                 .persistentSystemOverlays(.hidden)
+                .duoReady(sidebar: false)
+                .duoSimulate(Self.simulatedDuoPosture)
         }
+    }
+}
+
+extension CinemaHUDMobileApp {
+    /// Screenshots and previews: CINEMAHUD_DUO=closed|open|book|tent fakes an iPhone Duo posture (Debug only).
+    static var simulatedDuoPosture: DuoSimulation? {
+        #if DEBUG
+        switch ProcessInfo.processInfo.environment["CINEMAHUD_DUO"] {
+        case "closed": return .closed
+        case "open": return .open
+        case "book": return .book
+        case "tent": return .tent
+        default: return nil
+        }
+        #else
+        return nil
+        #endif
     }
 }
 

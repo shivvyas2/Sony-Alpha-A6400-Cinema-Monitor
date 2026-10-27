@@ -11,10 +11,14 @@ let package = Package(
         .executable(name: "CinemaHUD", targets: ["CinemaHUD"]),
         .executable(name: "usbprobe", targets: ["usbprobe"]),
     ],
+    dependencies: [
+        // Layouts for the iPhone Duo's postures (tent, book) in the iOS monitor.
+        .package(url: "https://github.com/shivvyas2/DuoKit", from: "0.1.0"),
+    ],
     targets: [
         .target(name: "SonyCameraKit"),
         .target(name: "CinemaAudio"),
-        .target(name: "CinemaUI", dependencies: ["SonyCameraKit", "CinemaAudio"]),
+        .target(name: "CinemaUI", dependencies: ["SonyCameraKit", "CinemaAudio", .product(name: "DuoKit", package: "DuoKit")]),
         .executableTarget(
             name: "CinemaHUD",
             dependencies: ["SonyCameraKit", "CinemaUI", "CinemaAudio"],

@@ -12,6 +12,7 @@
 		693B51D35ED044DBDD8C1DFD /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 694174D1B137D935D064B309 /* PrivacyInfo.xcprivacy */; };
 		C9F9D505833A5B7230F5C58F /* LaunchIntroView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6EC62C5CBB91553EA0EFBD /* LaunchIntroView.swift */; };
 		DE5D0171802F42C825CF6FAD /* CinemaUI in Frameworks */ = {isa = PBXBuildFile; productRef = E91C14268287C803D21FFF8C /* CinemaUI */; };
+		F6B149786E62194DB2ACE31B /* DuoKit in Frameworks */ = {isa = PBXBuildFile; productRef = 68712ADD2CA860B98E5E1346 /* DuoKit */; };
 		FE83CFDDE1AEA482C8E457D2 /* SonyCameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 734B44E2A88CD6260B138F92 /* SonyCameraKit */; };
 /* End PBXBuildFile section */
 
@@ -32,6 +33,7 @@
 			files = (
 				FE83CFDDE1AEA482C8E457D2 /* SonyCameraKit in Frameworks */,
 				DE5D0171802F42C825CF6FAD /* CinemaUI in Frameworks */,
+				F6B149786E62194DB2ACE31B /* DuoKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -94,6 +96,7 @@
 			packageProductDependencies = (
 				734B44E2A88CD6260B138F92 /* SonyCameraKit */,
 				E91C14268287C803D21FFF8C /* CinemaUI */,
+				68712ADD2CA860B98E5E1346 /* DuoKit */,
 			);
 			productName = CinemaHUDMobile;
 			productReference = 21E8AD86E98719F4EFE0F2A2 /* CinemaHUDMobile.app */;
@@ -123,6 +126,7 @@
 			mainGroup = 173398573DAD757ABB92FEC4;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				ED7757D16B609051B645D966 /* XCRemoteSwiftPackageReference "DuoKit" */,
 				746711A5D1FEB6ED43B48D74 /* XCLocalSwiftPackageReference ".." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -351,7 +355,23 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		ED7757D16B609051B645D966 /* XCRemoteSwiftPackageReference "DuoKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/shivvyas2/DuoKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		68712ADD2CA860B98E5E1346 /* DuoKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ED7757D16B609051B645D966 /* XCRemoteSwiftPackageReference "DuoKit" */;
+			productName = DuoKit;
+		};
 		734B44E2A88CD6260B138F92 /* SonyCameraKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SonyCameraKit;

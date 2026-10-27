@@ -2,12 +2,14 @@
 import SwiftUI
 import CoreImage
 import SonyCameraKit
+import DuoKit
 
 /// iPhone / iPad monitor: the picture plus touch chrome, in either orientation, for video and photo.
 public struct MobileCameraView: View {
     public init() {}
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @Environment(\.duoLayout) private var duo
     @State private var processor = FrameProcessor()
     @State private var processed: CIImage?
     @State private var scope: CGImage?
@@ -155,25 +157,45 @@ public struct MobileCameraView: View {
         }
     }
 
-    private func portraitLayout(_ size: CGSize) -> some View {
-        VStack(spacing: 0) {
-            topBand
-            picture.frame(height: size.width * pictureAspectInverse)
-            ScrollView {
-                VStack(spacing: 14) {
-                    ScrollView(.horizontal, showsIndicators: false) { exposureRow.padding(.horizontal, 8).frame(maxWidth: .infinity) }
-                    toolRows
-                    HStack(spacing: 28) {
-                        MobileToolButton(icon: "scope", label: "AF", enabled: session.state.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
-                        primaryButton
-                        MobileToolButton(icon: "gearshape", label: "SETTINGS") { sheet = .settings }
-                    }
-                    .padding(.top, 4)
-                    if overlays.shootingMode == .photo { MobileFilmstrip().padding(.horizontal, 12) }
-                }
-                .padding(.vertical, 12)
+    @ViewBuilder private func portraitLayout(_ size: CGSize) -> some View {
+        switch duo.posture {
+        case .tent:
+            // iPhone Duo propped like a tent: the picture above the crease, the controls below it.
+            DuoTentLayout {
+                VStack(spacing: 0) { topBand; picture }
+            } bottom: {
+                ScrollView { portraitControls() }
+            }
+        case .book:
+            // Held like a book: the picture fills one page, the controls the other.
+            DuoSplit {
+                VStack(spacing: 0) { topBand; picture }
+            } secondary: {
+                ScrollView { portraitControls(narrow: true) }.frame(maxHeight: .infinity)
+            }
+        case .compact, .expanded:
+            VStack(spacing: 0) {
+                topBand
+                picture.frame(height: size.width * pictureAspectInverse)
+                ScrollView { portraitControls() }
             }
         }
+    }
+
+    /// `narrow`: one page of an iPhone Duo held like a book, too narrow for rows of five.
+    private func portraitControls(narrow: Bool = false) -> some View {
+        VStack(spacing: 14) {
+            ScrollView(.horizontal, showsIndicators: false) { exposureRow.padding(.horizontal, 8).frame(maxWidth: .infinity) }
+            if narrow { toolGrid } else { toolRows }
+            HStack(spacing: 28) {
+                MobileToolButton(icon: "scope", label: "AF", enabled: session.state.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
+                primaryButton.avoidsFold()
+                MobileToolButton(icon: "gearshape", label: "SETTINGS") { sheet = .settings }
+            }
+            .padding(.top, 4)
+            if overlays.shootingMode == .photo { MobileFilmstrip().padding(.horizontal, 12) }
+        }
+        .padding(.vertical, 12)
     }
 
     /// Height / width of the displayed picture (crop and rotation applied).
@@ -280,26 +302,39 @@ public struct MobileCameraView: View {
     }
 
     private var toolRows: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) { overlayTools }
+            HStack(spacing: 8) { cameraTools }
+        }
+    }
+
+    /// The tools in three columns, for a page of the iPhone Duo held like a book.
+    private var toolGrid: some View {
+        let column = GridItem(.fixed(MobileMetrics.target + 4), spacing: 8)
+        return LazyVGrid(columns: [column, column, column], spacing: 8) {
+            overlayTools
+            cameraTools
+        }
+    }
+
+    @ViewBuilder private var overlayTools: some View {
+        MobileToolButton(icon: "grid", label: "GUIDES", active: overlays.grid || overlays.frameGuides || overlays.safeAreas || overlays.diagonals) { sheet = .guides }
+        MobileToolButton(icon: "waveform.path.ecg", label: "PEAK", active: overlays.peaking) { overlays.peaking.toggle() }
+        MobileToolButton(icon: "line.diagonal", label: "ZEBRA", active: overlays.zebra) { overlays.zebra.toggle() }
+        MobileToolButton(icon: "plus.magnifyingglass", label: "2×", active: overlays.magnify) { overlays.magnify.toggle() }
+        MobileToolButton(icon: "chart.bar.xaxis", label: overlays.scope == .none ? "SCOPE" : overlays.scope.rawValue, active: overlays.scope != .none) { overlays.scope = overlays.scope.next }
+    }
+
+    @ViewBuilder private var cameraTools: some View {
         let s = session.state
-        return VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                MobileToolButton(icon: "grid", label: "GUIDES", active: overlays.grid || overlays.frameGuides || overlays.safeAreas || overlays.diagonals) { sheet = .guides }
-                MobileToolButton(icon: "waveform.path.ecg", label: "PEAK", active: overlays.peaking) { overlays.peaking.toggle() }
-                MobileToolButton(icon: "line.diagonal", label: "ZEBRA", active: overlays.zebra) { overlays.zebra.toggle() }
-                MobileToolButton(icon: "plus.magnifyingglass", label: "2×", active: overlays.magnify) { overlays.magnify.toggle() }
-                MobileToolButton(icon: "chart.bar.xaxis", label: overlays.scope == .none ? "SCOPE" : overlays.scope.rawValue, active: overlays.scope != .none) { overlays.scope = overlays.scope.next }
-            }
-            HStack(spacing: 8) {
-                MobileToolButton(icon: "camera.aperture", label: "FOCUS") { sheet = .focus }
-                MobileToolButton(icon: "arrow.up.left.and.arrow.down.right", label: "ZOOM") { sheet = .zoom }
-                MobileToolButton(icon: "square.and.arrow.down", label: "FORMAT") { sheet = .format }
-                MobileToolButton(icon: "lock", label: "AEL") { Task { await session.press(.aeLock) } }
-                if overlays.shootingMode == .video {
-                    MobileToolButton(icon: "camera", label: "STILL", enabled: s.supports("actTakePicture")) { Task { await session.takePicture() } }
-                } else {
-                    MobileToolButton(icon: "circle.lefthalf.filled", label: overlays.lutOn ? "709" : "LOG", enabled: overlays.profile.isLog || overlays.customLUT != nil) { overlays.lutOn.toggle() }
-                }
-            }
+        MobileToolButton(icon: "camera.aperture", label: "FOCUS") { sheet = .focus }
+        MobileToolButton(icon: "arrow.up.left.and.arrow.down.right", label: "ZOOM") { sheet = .zoom }
+        MobileToolButton(icon: "square.and.arrow.down", label: "FORMAT") { sheet = .format }
+        MobileToolButton(icon: "lock", label: "AEL") { Task { await session.press(.aeLock) } }
+        if overlays.shootingMode == .video {
+            MobileToolButton(icon: "camera", label: "STILL", enabled: s.supports("actTakePicture")) { Task { await session.takePicture() } }
+        } else {
+            MobileToolButton(icon: "circle.lefthalf.filled", label: overlays.lutOn ? "709" : "LOG", enabled: overlays.profile.isLog || overlays.customLUT != nil) { overlays.lutOn.toggle() }
         }
     }
 

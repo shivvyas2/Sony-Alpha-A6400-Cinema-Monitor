@@ -7,6 +7,9 @@ options:
 packages:
   CinemaHUD:
     path: ..
+  DuoKit:
+    url: https://github.com/shivvyas2/DuoKit
+    from: 0.1.0
 targets:
   CinemaHUDMobile:
     type: application
@@ -18,12 +21,13 @@ targets:
         product: SonyCameraKit
       - package: CinemaHUD
         product: CinemaUI
+      - package: DuoKit
     info:
       path: CinemaHUDMobile/Info.plist
       properties:
         CFBundleDisplayName: CinemaHUD
         CFBundleShortVersionString: "2.4.1"
-        CFBundleVersion: "9"
+        CFBundleVersion: "10"
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: LaunchBackground
