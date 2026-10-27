@@ -4,7 +4,8 @@
 #
 # Secrets: MACOS_CERT_P12 (base64 Developer ID Application .p12), MACOS_CERT_PASSWORD,
 #          ASC_KEY_P8 (base64 App Store Connect API key), ASC_KEY_ID, ASC_ISSUER_ID.
-# Without the certificate secrets the DMG is ad-hoc signed and not notarized.
+# Without the certificate secrets the DMG is ad-hoc signed, not notarized, and kept as a workflow
+# artifact only: an unsigned build never replaces the signed one on the release.
 name: Release DMG
 
 on:
@@ -59,7 +60,15 @@ jobs:
           NOTARY_ISSUER: ${{ secrets.ASC_ISSUER_ID }}
         run: scripts/build-dmg.sh
 
+      - name: Keep unsigned build as an artifact
+        if: env.SIGN_IDENTITY == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: CinemaHUD-unsigned-dmg
+          path: build/*.dmg
+
       - name: Publish release
+        if: env.SIGN_IDENTITY != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
