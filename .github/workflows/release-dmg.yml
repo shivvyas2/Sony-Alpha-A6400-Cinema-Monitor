@@ -1,0 +1,75 @@
+# Every push to `release` builds the Mac app, signs and notarizes it, and publishes the DMG as the
+# GitHub release for the version in Resources/Info.plist (replacing its assets if it already exists).
+# A stable-named CinemaHUD.dmg is attached too, so releases/latest/download/CinemaHUD.dmg always works.
+#
+# Secrets: MACOS_CERT_P12 (base64 Developer ID Application .p12), MACOS_CERT_PASSWORD,
+#          ASC_KEY_P8 (base64 App Store Connect API key), ASC_KEY_ID, ASC_ISSUER_ID.
+# Without the certificate secrets the DMG is ad-hoc signed and not notarized.
+name: Release DMG
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dmg
+  cancel-in-progress: true
+
+jobs:
+  dmg:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+
+      - name: Import signing certificate
+        env:
+          CERT: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        if: env.CERT != ''
+        run: |
+          KC="$RUNNER_TEMP/signing.keychain-db"; KC_PW=$(uuidgen)
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" | grep -o '"Developer ID Application[^"]*"' | head -1 | tr -d '"')
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          if [ -n "$ASC_KEY_P8" ]; then
+            echo "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/asc.p8"
+            echo "NOTARY_KEY=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test
+        run: swift test 2>&1 | tail -20
+
+      - name: Build DMG
+        env:
+          NOTARY_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+        run: scripts/build-dmg.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Resources/Info.plist)
+          DMG="build/CinemaHUD-$VERSION.dmg"
+          cp "$DMG" build/CinemaHUD.dmg
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" "$DMG" build/CinemaHUD.dmg --clobber
+          else
+            gh release create "v$VERSION" "$DMG" build/CinemaHUD.dmg --target "$GITHUB_SHA" \
+              --title "CinemaHUD $VERSION" --notes "CinemaHUD $VERSION (build $BUILD) for macOS 14 or later."
+          fi
