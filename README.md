@@ -262,9 +262,9 @@ offers), movie record start/stop with true recording state, battery. Touch AF is
 Still capture and half-press AF over USB are implemented but were only exercised in movie mode,
 where the body ignores them; test them in a stills mode.
 
-Photo check, saving to Photos and the bridge's photo transfer have been exercised against the simulator and real
-α6400 JPEGs; transfer from a camera body is pending. Photo mode: RAW+JPEG transfer over USB to the Mac works on an α6400; body-triggered transfer, auto review and the focus verdict have been
-exercised against the simulator only.
+Photo mode on an α6400 over USB: RAW+JPEG transfer to the Mac and the JPEG on to an iPhone through the bridge work.
+The photo check is calibrated on real α6400 JPEGs. JPEG transfer over the camera's own Wi-Fi has been exercised against
+the simulator only.
 
 Field audio: arm a Scarlett 2i2 (meters follow input) — pending; REC on the α6400 produces a WAV of
 clip length + ~4 s — pending; Logic 11 chases MTC and records on REC — pending; Sync Takes on a real

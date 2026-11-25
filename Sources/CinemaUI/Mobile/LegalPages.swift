@@ -4,7 +4,8 @@ import SwiftUI
 public enum LegalText {
     public static let developer = "Shiv Vyas"
     public static let contact = "shivvyas0209@gmail.com"
-    public static let effectiveDate = "15 September 2026"
+    public static let termsDate = "15 September 2026"
+    public static let privacyDate = "25 November 2026"
 
     public struct Paragraph: Identifiable, Equatable {
         public let id: Int
@@ -22,7 +23,7 @@ public enum LegalText {
     public static let privacyPolicy = """
     # Privacy Policy
 
-    Effective \(effectiveDate). CinemaHUD is developed by \(developer) ("we", "us").
+    Effective \(privacyDate). CinemaHUD is developed by \(developer) ("we", "us").
 
     # What we collect
 
@@ -30,7 +31,7 @@ public enum LegalText {
 
     # Local network
 
-    The app talks only to your Sony camera (over the camera's own Wi-Fi network) or to a Mac running CinemaHUD on the same local network. iOS asks for Local Network permission for this reason alone. Nothing is sent to the Internet by the app.
+    The app talks only to your Sony camera (over the camera's own Wi-Fi network) or to a Mac running CinemaHUD on the same local network. iOS asks for Local Network permission for this reason alone. While a Mac shares its camera, devices on the same network can see the live view, control the camera and receive that session's JPEGs; sharing has no password and can be turned off on the Mac. Nothing is sent to the Internet by the app.
 
     # Photos and recordings
 
@@ -56,7 +57,7 @@ public enum LegalText {
     public static let termsOfUse = """
     # Terms of Use
 
-    Effective \(effectiveDate). By using CinemaHUD ("the app") you agree to these terms.
+    Effective \(termsDate). By using CinemaHUD ("the app") you agree to these terms.
 
     # The app
 

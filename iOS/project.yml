@@ -27,7 +27,7 @@ targets:
       properties:
         CFBundleDisplayName: CinemaHUD
         CFBundleShortVersionString: "2.5.3"
-        CFBundleVersion: "14"
+        CFBundleVersion: "15"
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: LaunchBackground
