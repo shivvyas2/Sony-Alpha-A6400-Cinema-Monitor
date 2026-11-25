@@ -26,8 +26,8 @@ targets:
       path: CinemaHUDMobile/Info.plist
       properties:
         CFBundleDisplayName: CinemaHUD
-        CFBundleShortVersionString: "2.5.2"
-        CFBundleVersion: "13"
+        CFBundleShortVersionString: "2.5.3"
+        CFBundleVersion: "14"
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: LaunchBackground
