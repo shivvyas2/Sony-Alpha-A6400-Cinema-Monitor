@@ -109,9 +109,9 @@ public enum ShotQualityAnalyzer {
                 for y in 1 ..< l.height - 1 {
                     for x in 1 ..< w - 1 {
                         let i = y * w + x
-                        let a = Int(p[i - w - 1]) + Int(p[i - w]) + Int(p[i - w + 1])
-                        let b = Int(p[i - 1]) + Int(p[i]) + Int(p[i + 1])
-                        let c = Int(p[i + w - 1]) + Int(p[i + w]) + Int(p[i + w + 1])
+                        let a: Int = Int(p[i - w - 1]) + Int(p[i - w]) + Int(p[i - w + 1])
+                        let b: Int = Int(p[i - 1]) + Int(p[i]) + Int(p[i + 1])
+                        let c: Int = Int(p[i + w - 1]) + Int(p[i + w]) + Int(p[i + w + 1])
                         o[i] = UInt8((a + b + c + 4) / 9)
                     }
                 }
@@ -174,7 +174,8 @@ public enum ShotQualityAnalyzer {
         // Movement smears only the edges it crosses, so a tile is as sharp as its worse axis.
         func width(_ t: Tile) -> Double? {
             let a = percentile(t.h, 0.25), b = percentile(t.v, 0.25)
-            return [a, b].compactMap { $0 }.max()
+            if let a, let b { return max(a, b) }
+            return a ?? b
         }
         func axes(_ t: Tile) -> Double? {
             guard let a = percentile(t.h, 0.25), let b = percentile(t.v, 0.25) else { return nil }
@@ -193,7 +194,8 @@ public enum ShotQualityAnalyzer {
         if let r = subject {
             var sum = Tile()
             for ty in 0 ..< tilesY { for tx in 0 ..< tilesX {
-                let c = CGRect(x: CGFloat(tx) / CGFloat(tilesX), y: CGFloat(ty) / CGFloat(tilesY), width: 1 / CGFloat(tilesX), height: 1 / CGFloat(tilesY))
+                let tw: CGFloat = 1 / CGFloat(tilesX), th: CGFloat = 1 / CGFloat(tilesY)
+                let c = CGRect(x: CGFloat(tx) * tw, y: CGFloat(ty) * th, width: tw, height: th)
                 let o = c.intersection(r)
                 guard !o.isNull, o.width * o.height > c.width * c.height * 0.25 else { continue }
                 let t = tiles[ty * tilesX + tx]
@@ -281,8 +283,8 @@ public enum ShotQualityAnalyzer {
                         for x in x0 ..< x0 + block {
                             let i = r + x
                             sum += Int(p[i])
-                            let corners = Int(p[i - w - 1]) + Int(p[i - w + 1]) + Int(p[i + w - 1]) + Int(p[i + w + 1])
-                            let sides = Int(p[i - w]) + Int(p[i + w]) + Int(p[i - 1]) + Int(p[i + 1])
+                            let corners: Int = Int(p[i - w - 1]) + Int(p[i - w + 1]) + Int(p[i + w - 1]) + Int(p[i + w + 1])
+                            let sides: Int = Int(p[i - w]) + Int(p[i + w]) + Int(p[i - 1]) + Int(p[i + 1])
                             acc += abs(corners - 2 * sides + 4 * Int(p[i]))
                         }
                     }
