@@ -5,6 +5,8 @@ final class StreamingTask: NSObject, URLSessionDataDelegate, @unchecked Sendable
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private var session: URLSession?
     private var task: URLSessionDataTask?
+    /// HTTP status of the answer, once there is one.
+    private(set) var statusCode: Int?
 
     func start(url: URL) -> AsyncThrowingStream<Data, Error> {
         let stream = AsyncThrowingStream<Data, Error> { cont in
@@ -28,6 +30,11 @@ final class StreamingTask: NSObject, URLSessionDataDelegate, @unchecked Sendable
         task?.cancel()
         session?.invalidateAndCancel()
         task = nil; session = nil
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        statusCode = (response as? HTTPURLResponse)?.statusCode
+        completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {

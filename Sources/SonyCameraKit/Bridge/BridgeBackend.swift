@@ -4,83 +4,116 @@ import Foundation
 public final class BridgeBackend: CameraBackend, @unchecked Sendable {
     public let kind: CameraTransportKind = .bridge
     public let baseURL: URL
-    private let session: URLSession
+    private var session: URLSession
     private var last: BridgeState?
     private let lock = NSLock()
     private let captures = CaptureBroadcaster()
     public var saveDirectory: URL = CaptureStore.defaultBase
     private var shotTask: Task<Void, Never>?
-    private var seenShots: Set<UUID> = []
-    private var shotsPrimed = false
+    private var wantsShots = false
+    private let defaults: UserDefaults
+    private static let seenKey = "bridgeShotsReceived"
 
     public var displayName: String { lock.withLock { last?.cameraName } ?? baseURL.host ?? "Mac" }
     /// What the Mac itself is connected through (USB / Wi-Fi).
     public var bridgedTransport: String { lock.withLock { last?.transport } ?? "" }
 
-    public init(baseURL: URL) {
+    public init(baseURL: URL, defaults: UserDefaults = .standard) {
         self.baseURL = baseURL
+        self.defaults = defaults
+        session = Self.makeSession()
+    }
+
+    private static func makeSession() -> URLSession {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 10
         cfg.timeoutIntervalForResource = .infinity
-        session = URLSession(configuration: cfg)
+        return URLSession(configuration: cfg)
     }
 
+    private var current: URLSession { lock.withLock { session } }
+
     public func connect() async throws -> CameraState {
-        let (data, resp) = try await session.data(from: baseURL.appendingPathComponent("state"))
+        let (data, resp) = try await current.data(from: baseURL.appendingPathComponent("state"))
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UnsupportedOperation("The Mac has no camera connected") }
         let s = try JSONDecoder().decode(BridgeState.self, from: data)
         lock.withLock { last = s }
+        if lock.withLock({ wantsShots }) { startFollowing() }
         return s.cameraState
     }
 
+    /// `connect` may follow on the same backend (CameraSession.reconnect), so a fresh URLSession is put in place.
     public func disconnect() async {
-        lock.withLock { shotTask }?.cancel()
-        session.invalidateAndCancel()
+        let (task, old) = lock.withLock { () -> (Task<Void, Never>?, URLSession) in
+            defer { shotTask = nil; session = Self.makeSession() }
+            return (shotTask, session)
+        }
+        task?.cancel()
+        old.invalidateAndCancel()
     }
+
+    // MARK: Photos
 
     public func captureEvents() -> AsyncStream<CaptureEvent> {
         let stream = captures.stream()
-        lock.withLock { if shotTask == nil { shotTask = Task { [weak self] in await self?.followShots() } } }
+        lock.withLock { wantsShots = true }
+        startFollowing()
         return stream
     }
 
-    /// Fetches each JPEG the Mac announces. Shots from before this connection are skipped; ones missed while the
-    /// network was down are fetched when the stream reopens. A Mac without /shots (2.4 and older) just sends none.
+    private func startFollowing() {
+        lock.withLock { if shotTask == nil { shotTask = Task { [weak self] in await self?.followShots() } } }
+    }
+
+    /// Copies every JPEG the Mac has this session, each one once: those from before this device connected, the new
+    /// ones as they land, and after a drop whatever was missed.
     private func followShots() async {
-        var wait = 1.0
+        var wait = 1.0, toldOld = false
         while !Task.isCancelled {
             let streamer = StreamingTask()
             do {
                 var buffer = Data()
                 for try await chunk in streamer.start(url: baseURL.appendingPathComponent("shots")) {
                     if Task.isCancelled { break }
+                    if streamer.statusCode == 404 { break }
                     buffer.append(chunk)
                     while let r = buffer.range(of: Data("\n\n".utf8)) {
                         let event = String(decoding: buffer[buffer.startIndex ..< r.lowerBound], as: UTF8.self)
                         buffer.removeSubrange(buffer.startIndex ..< r.upperBound)
-                        if event == ": ready" { shotsPrimed = true; wait = 1; continue }
+                        if event == ": ready" { wait = 1; continue }
                         guard event.hasPrefix("data: "), let s = try? JSONDecoder().decode(BridgeShot.self, from: Data(event.dropFirst(6).utf8)) else { continue }
-                        guard seenShots.insert(s.id).inserted else { continue }
-                        if s.replay && !shotsPrimed { continue }
-                        await fetch(s)
+                        if !received.contains(s.id.uuidString) { await fetch(s) }
+                        if Task.isCancelled { break }
                     }
                 }
             } catch {}
+            let old = streamer.statusCode == 404
             streamer.cancel()
             if Task.isCancelled { return }
+            if old {
+                if !toldOld { toldOld = true; captures.send(.failed(shotIndex: -1, message: "Update CinemaHUD on the Mac to receive photos")) }
+                wait = 30
+            }
             try? await Task.sleep(for: .seconds(wait))
-            wait = min(15, wait * 2)
+            wait = min(30, wait * 2)
         }
+    }
+
+    /// Ids of photos this device already has, kept across launches so nothing lands in Photos twice.
+    private var received: [String] {
+        get { defaults.stringArray(forKey: Self.seenKey) ?? [] }
+        set { defaults.set(Array(newValue.suffix(1000)), forKey: Self.seenKey) }
     }
 
     private func fetch(_ s: BridgeShot) async {
         for attempt in 1 ... 3 {
             do {
-                let (data, resp) = try await session.data(from: baseURL.appendingPathComponent("shot/\(s.id.uuidString)"))
+                let (data, resp) = try await current.data(from: baseURL.appendingPathComponent("shot/\(s.id.uuidString)"))
                 guard (resp as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { throw URLError(.badServerResponse) }
                 let name = (s.filename as NSString).lastPathComponent
                 let file = try CaptureStore.write(data, base: saveDirectory, filename: name, date: s.takenAt)
-                captures.send(.image(CapturedImage(url: file, kind: .jpeg, filename: name, takenAt: s.takenAt, shotIndex: s.shotIndex, id: s.id)))
+                received.append(s.id.uuidString)
+                captures.send(.image(CapturedImage(url: file, kind: .jpeg, filename: name, takenAt: s.takenAt, shotIndex: s.shotIndex, id: s.id, catchUp: s.replay)))
                 captures.send(.finished(shotIndex: s.shotIndex))
                 return
             } catch {
@@ -148,7 +181,7 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(cmd)
-        let (data, _) = try await session.data(for: req)
+        let (data, _) = try await current.data(for: req)
         let reply = try JSONDecoder().decode(BridgeReply.self, from: data)
         if !reply.ok { throw UnsupportedOperation(reply.error ?? cmd.op) }
         return reply

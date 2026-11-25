@@ -9,8 +9,11 @@ public struct CapturedImage: Sendable, Identifiable, Equatable, Hashable {
     public let filename: String
     public let takenAt: Date
     public let shotIndex: Int
+    /// Arrived late, from before this device connected or while it was away: kept, but not shown as a new shot.
+    public var catchUp = false
 
-    public init(url: URL, kind: Kind, filename: String, takenAt: Date, shotIndex: Int, id: UUID = UUID()) {
+    public init(url: URL, kind: Kind, filename: String, takenAt: Date, shotIndex: Int, id: UUID = UUID(), catchUp: Bool = false) {
+        self.catchUp = catchUp
         self.id = id; self.url = url; self.kind = kind; self.filename = filename; self.takenAt = takenAt; self.shotIndex = shotIndex
     }
 
@@ -33,7 +36,7 @@ public enum CaptureEvent: Sendable, Equatable {
     /// The same event with its shot number moved by `base` (-1, "no shot", stays).
     func offset(by base: Int) -> CaptureEvent {
         switch self {
-        case .image(let i): return .image(CapturedImage(url: i.url, kind: i.kind, filename: i.filename, takenAt: i.takenAt, shotIndex: i.shotIndex + base, id: i.id))
+        case .image(let i): return .image(CapturedImage(url: i.url, kind: i.kind, filename: i.filename, takenAt: i.takenAt, shotIndex: i.shotIndex + base, id: i.id, catchUp: i.catchUp))
         case .finished(let n): return .finished(shotIndex: n + base)
         case .failed(let n, let m): return .failed(shotIndex: n < 0 ? n : n + base, message: m)
         }

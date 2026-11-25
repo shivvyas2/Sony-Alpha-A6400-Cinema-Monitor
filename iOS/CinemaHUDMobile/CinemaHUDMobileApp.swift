@@ -67,6 +67,8 @@ struct MobileRootView: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
+        // A locked phone drops the camera and stops receiving photos.
+        .onChange(of: session.phase.isConnected, initial: true) { _, live in UIApplication.shared.isIdleTimerDisabled = live }
         .onChange(of: session.captures) { _, shots in saver.sync(shots) }
         .onChange(of: session.state.shootMode, initial: true) { _, dial in overlays.modeResolver.dial(dial) }
         .task {

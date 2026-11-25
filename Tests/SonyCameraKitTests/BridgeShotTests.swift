@@ -9,9 +9,8 @@ final class BridgeShotTests: XCTestCase {
         return CapturedImage(url: u, kind: .jpeg, filename: name, takenAt: Date(), shotIndex: 1)
     }
 
-    func testNewShotsReachTheClientOldOnesAndOtherPathsDoNot() async throws {
+    func testShotReachesTheClientWholeAndOtherPathsDoNot() async throws {
         let shelf = BridgeShotShelf()
-        shelf.add(try file("OLD.JPG", 100))
         let st = BridgeState(state: CameraState(), settings: [], transport: .usb, cameraName: "a6400")
         let server = BridgeServer(name: "t", frames: Broadcaster<Data>(), states: Broadcaster<BridgeState>(), shots: shelf,
                                   state: { st }, handler: { _ in BridgeReply(ok: true) })
@@ -19,7 +18,7 @@ final class BridgeShotTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
 
         let base = URL(string: "http://127.0.0.1:\(port)")!
-        let client = BridgeBackend(baseURL: base)
+        let client = BridgeBackend(baseURL: base, defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         client.saveDirectory = dir
         _ = try await client.connect()
@@ -33,7 +32,7 @@ final class BridgeShotTests: XCTestCase {
             let r = try await g.next()!; g.cancelAll(); return r
         }
         guard case .image(let img)? = first else { return XCTFail("no image: \(String(describing: first))") }
-        XCTAssertEqual(img.filename, "DSC0421.JPG")                       // not the old shot, and no path tricks
+        XCTAssertEqual(img.filename, "DSC0421.JPG")                       // no path tricks
         XCTAssertTrue(img.url.path.hasPrefix(dir.path))
         XCTAssertEqual(try Data(contentsOf: img.url).count, 3_000_000)
 

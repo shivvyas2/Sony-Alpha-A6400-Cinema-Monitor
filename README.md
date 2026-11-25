@@ -104,7 +104,8 @@ can be what you wanted. Measured on the device; calibrated on α6400 JPEGs. In v
 iPad for a few seconds after a still. Turn it off in Settings.
 
 **On iPhone and iPad** each JPEG is also added to Photos (add-only access; off in Settings), over the camera's
-Wi-Fi or through the Mac bridge. RAW stays on the card: set *File Format* to RAW+JPEG, and on USB *Still Img. Save
+Wi-Fi or through the Mac bridge (CinemaHUD 2.5 or later on the Mac), which hands over every JPEG of the Mac's session,
+including those taken before the phone connected or while it was away. RAW stays on the card: set *File Format* to RAW+JPEG, and on USB *Still Img. Save
 Dest.* to **PC+Camera**. **Export** opens the share menu for Lightroom, Instagram, AirDrop and the rest. The camera's
 own Wi-Fi has no internet, so uploads wait until you leave it.
 

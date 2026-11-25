@@ -187,10 +187,13 @@ public final class CameraSession {
     func handle(_ raw: CaptureEvent) {
         let event = raw.offset(by: shotBase)
         let touch = state.touchAFSet ? state.touchAFPoint : nil   // unset points are the camera's default, not a choice
-        let af = focusCheckPoint ?? touch.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
-        switch shotLog.apply(event, exposure: ExposureSnapshot(state: state), afPoint: af) {
+        var af = focusCheckPoint ?? touch.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
+        var exposure = ExposureSnapshot(state: state)
+        var late = false
+        if case .image(let image) = event, image.catchUp { late = true; af = nil; exposure = ExposureSnapshot(state: CameraState()) }
+        switch shotLog.apply(event, exposure: exposure, afPoint: af) {
         case .newShot(let shot):
-            reviewShot = shot           // auto review, like the body's own display
+            if !late { reviewShot = shot }           // auto review, like the body's own display
         case .updated(let shot):
             if reviewShot?.id == shot.id { reviewShot = shot }
             if let e = shot.error { lastError = e }

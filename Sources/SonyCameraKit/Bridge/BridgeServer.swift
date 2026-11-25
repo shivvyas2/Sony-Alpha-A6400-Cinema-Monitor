@@ -19,14 +19,14 @@ public final class BridgeServer: @unchecked Sendable {
     private let states: Broadcaster<BridgeState>
     private let state: StateProvider
     private let handler: CommandHandler
-    private let shots: BridgeShotShelf
+    private let shots: BridgeShotShelf?
     public private(set) var port: UInt16 = 0
     public private(set) var isRunning = false
     private var connections: Set<ObjectIdentifier> = []
     private let lock = NSLock()
     public var clientCount: Int { lock.withLock { connections.count } }
 
-    public init(name: String, frames: Broadcaster<Data>, states: Broadcaster<BridgeState>, shots: BridgeShotShelf = BridgeShotShelf(), state: @escaping StateProvider, handler: @escaping CommandHandler) {
+    public init(name: String, frames: Broadcaster<Data>, states: Broadcaster<BridgeState>, shots: BridgeShotShelf? = BridgeShotShelf(), state: @escaping StateProvider, handler: @escaping CommandHandler) {
         self.frames = frames; self.states = states; self.shots = shots; self.state = state; self.handler = handler
         self.serviceName = name
     }
@@ -99,7 +99,8 @@ public final class BridgeServer: @unchecked Sendable {
                 if let d = try? JSONEncoder().encode(s) { write(conn, Data("data: ".utf8) + d + Data("\n\n".utf8)) }
             }
             heartbeat.cancel(); conn.cancel()
-        case ("GET", "/shots"):
+        case ("GET", "/shots") where shots != nil:
+            guard let shots else { return }
             sendHead(conn, status: 200, headers: ["Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive"])
             let (past, next) = shots.subscribe()
             func push(_ s: BridgeShot) { if let d = try? JSONEncoder().encode(s) { write(conn, Data("data: ".utf8) + d + Data("\n\n".utf8)) } }
@@ -113,7 +114,7 @@ public final class BridgeServer: @unchecked Sendable {
             heartbeat.cancel(); conn.cancel()
         case ("GET", let path) where path.hasPrefix("/shot/"):
             // Looked up by id on the shelf, never as a path.
-            if let id = UUID(uuidString: String(path.dropFirst(6))), let url = shots.url(id), let data = try? Data(contentsOf: url) {
+            if let id = UUID(uuidString: String(path.dropFirst(6))), let url = shots?.url(id), let data = try? Data(contentsOf: url) {
                 send(conn, status: 200, type: "image/jpeg", body: data)
             } else {
                 send(conn, status: 404, type: "text/plain", body: Data("not found\n".utf8))

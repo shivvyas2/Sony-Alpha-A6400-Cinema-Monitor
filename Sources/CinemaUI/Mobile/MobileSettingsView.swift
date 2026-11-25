@@ -51,7 +51,7 @@ struct MobileSettingsView: View {
                     HStack { Text("This session"); Spacer(); Text("\(session.captures.count) shots").foregroundStyle(Theme.dim) }
                     Toggle("Save JPEGs to Photos", isOn: $saver.autoSave)
                     Toggle("Photo check (blur, exposure, grain)", isOn: $ov.qualityCheck)
-                    Text("Every JPEG the camera sends is added to Photos, and kept in the Files app under CinemaHUD. Set the camera to RAW+JPEG to keep the RAW on the card; on a Mac's USB cable, set Still Img. Save Dest. to PC+Camera.")
+                    Text("Every JPEG the camera sends is added to Photos, and kept in the Files app under CinemaHUD. Through a Mac (CinemaHUD 2.5 or later there), this device gets every JPEG the Mac has this session. Set the camera to RAW+JPEG to keep the RAW on the card; on a Mac's USB cable, set Still Img. Save Dest. to PC+Camera.")
                         .font(.footnote).foregroundStyle(Theme.dim)
                 }
                 Section("About") {
