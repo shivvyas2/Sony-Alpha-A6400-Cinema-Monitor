@@ -9,6 +9,12 @@ public struct USBCameraDevice: Sendable, Identifiable, Equatable {
     public let productID: Int
     public let name: String
     public var isSony: Bool { vendorID == 0x054C }
+    /// Why this camera cannot be controlled, or nil for a Sony.
+    public var unsupportedReason: String? {
+        guard !isSony else { return nil }
+        let brand = [0x04A9: "Canon", 0x04B0: "Nikon", 0x04CB: "Fujifilm", 0x04DA: "Panasonic"][vendorID]
+        return "\(brand.map { "A \($0) camera" } ?? name) is connected. CinemaHUD controls Sony cameras over USB; other brands are not supported yet."
+    }
 }
 
 public struct USBTransportError: Error, LocalizedError, Sendable {

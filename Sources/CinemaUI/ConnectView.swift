@@ -35,7 +35,7 @@ public struct ConnectView: View {
         VStack(spacing: sideBySide == true ? 18 : 28) {
             VStack(spacing: 8) {
                 Text("CINEMA HUD").font(.system(size: 30, weight: .bold)).tracking(10).foregroundStyle(Theme.text).lineLimit(1).minimumScaleFactor(0.6)
-                Text("Remote monitor for the Sony α6400").font(.system(size: 13)).foregroundStyle(Theme.dim)
+                Text("Remote monitor for Sony α cameras").font(.system(size: 13)).foregroundStyle(Theme.dim)
             }
 
             AdaptiveStack(spacing: 16, sideBySide: sideBySide) {
@@ -92,9 +92,9 @@ public struct ConnectView: View {
                     Text("WI-FI").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.text)
                     step(1, "On the camera: MENU → Network → Ctrl w/ Smartphone → On, then Connection.")
                     #if os(macOS)
-                    step(2, "On this Mac: join the Wi-Fi named DIRECT-xxxx:ILCE-6400.")
+                    step(2, "On this Mac: join the Wi-Fi named DIRECT-xxxx.")
                     #else
-                    step(2, "On this \(MobileMetrics.isPad ? "iPad" : "iPhone"): join the Wi-Fi named DIRECT-xxxx:ILCE-6400.")
+                    step(2, "On this \(MobileMetrics.isPad ? "iPad" : "iPhone"): join the Wi-Fi named DIRECT-xxxx.")
                     #endif
                     #if os(macOS)
                     HStack(spacing: 8) { discoverButton; addressField.frame(width: 160); connectButton }

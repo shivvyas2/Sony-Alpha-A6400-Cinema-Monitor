@@ -89,15 +89,48 @@ public struct SonyPropDesc: Sendable, Equatable {
         let count = Int(try rd.u64())
         var out: [SonyPropDesc] = []
         while !rd.atEnd && out.count < max(count, 1) + 64 {
-            guard let d = try? parseOne(&rd) else { break }
-            out.append(d)
+            if let d = try? parseOne(&rd) { out.append(d); continue }
+            // A property in a form this parser does not know: pick up again at the next one instead of losing the rest.
+            guard resync(&rd, seen: Set(out.map(\.code))) else { break }
         }
         return out
     }
 
+    /// Moves to the next offset that reads as a whole, not yet seen descriptor followed by another one or the end.
+    private static func resync(_ rd: inout PTPReader, seen: Set<UInt16>) -> Bool {
+        let from = rd.offset
+        var at = from + 2
+        while at + 8 <= rd.data.count {
+            var probe = rd
+            probe.offset = at
+            if let code = probe.peek16(), isPropertyCode(code), !seen.contains(code) {
+                var test = probe
+                if let d = try? parseOne(&test), d.getSet <= 1, d.isEnabled <= 2, d.formFlag <= 2, test.offset > at, looksLikeDescriptorBoundary(test) {
+                    rd = probe
+                    return true
+                }
+            }
+            at += 1
+        }
+        return false
+    }
+
     static func parseOne(_ rd: inout PTPReader) throws -> SonyPropDesc {
+        let start = rd.offset
+        do { return try readOne(&rd) } catch { rd.offset = start; throw error }
+    }
+
+    private static func readOne(_ rd: inout PTPReader) throws -> SonyPropDesc {
         let code = try rd.u16()
         let rawType = try rd.u16()
+        // Arrays (0x4000 + element type) are not shown anywhere; read past them.
+        if rawType & 0xF000 == 0x4000, let size = PTP.DataType(rawValue: rawType & 0x0FFF)?.byteSize {
+            let getSet = try rd.u8(), isEnabled = try rd.u8()
+            for _ in 0 ..< 2 { try rd.skip(Int(try rd.u32()) * size) }
+            let form = try rd.u8()
+            guard form == 0 else { throw PTPParseError() }
+            return SonyPropDesc(code: code, type: .undef, getSet: getSet, isEnabled: isEnabled, current: 0, formFlag: 0)
+        }
         guard let type = PTP.DataType(rawValue: rawType) else { throw PTPParseError() }
         let getSet = try rd.u8()
         let isEnabled = try rd.u8()
@@ -138,7 +171,11 @@ public struct SonyPropDesc: Sendable, Equatable {
     private static func looksLikeDescriptorBoundary(_ rd: PTPReader) -> Bool {
         if rd.atEnd { return true }
         guard let code = rd.peek16() else { return false }
-        return (0x5000 ... 0x5FFF).contains(code) || (0xD000 ... 0xDFFF).contains(code)
+        return isPropertyCode(code)
+    }
+
+    private static func isPropertyCode(_ code: UInt16) -> Bool {
+        (0x5000 ... 0x5FFF).contains(code) || (0xD000 ... 0xEFFF).contains(code)
     }
 }
 

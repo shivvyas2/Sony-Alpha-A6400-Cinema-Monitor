@@ -124,6 +124,7 @@ public final class CameraSession {
             phase = .failed("No camera on USB. On the camera: MENU → Setup → USB Connection → PC Remote, then connect the cable.")
             return
         }
+        if let reason = dev.unsupportedReason { phase = .failed(reason); return }
         await connect(SonyUSBBackend(device: dev))
         #else
         phase = .failed("USB control is not available on this device. Use the camera's Wi-Fi.")

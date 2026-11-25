@@ -73,20 +73,13 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
     /// The SDIO connect sequence Sony cameras require before any vendor operation works.
     private func sonyHandshake(_ dev: PTPDevice) async throws {
         do {
-            try await dev.transaction(PTP.Op.sonySDIOConnect, params: [1, 0, 0])
-            try await dev.transaction(PTP.Op.sonySDIOConnect, params: [2, 0, 0])
-            _ = try await dev.transaction(PTP.Op.sonyGetSDIOExtDeviceInfo, params: [0xC8])
-            try await dev.transaction(PTP.Op.sonySDIOConnect, params: [3, 0, 0])
+            // A body that still reports nothing stays connected: the state poll picks the settings up when they appear.
+            _ = try await SonyHandshake.run { op, params in try await dev.transaction(op, params: params).data }
         } catch let e as PTPError where e.code == PTP.Response.operationNotSupported {
             throw USBTransportError("The camera is not in PC Remote mode (USB Connection → PC Remote), or it is in MTP/Mass Storage mode.")
         }
         // Give the PC priority over the body's own controls (ignored by cameras that lack it).
         _ = try? await dev.transaction(PTP.Op.sonySetControlDeviceA, params: [UInt32(SonyProp.priorityMode)], dataOut: .ptpValue(1, as: .int8))
-        // Some bodies need a moment before property data is populated.
-        for _ in 0 ..< 10 {
-            if let d = try? await dev.transaction(PTP.Op.sonyGetAllDevicePropData), d.data.count > 8 { return }
-            try await Task.sleep(for: .milliseconds(200))
-        }
     }
 
     public func disconnect() async {
@@ -340,13 +333,19 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
         return list.first { format($0) == label }
     }
 
+    /// The raw value behind a label: from the camera's own list when it sends one, else from the built-in table.
+    static func target(_ label: String, in d: SonyPropDesc?, format: (Int64) -> String, table: [Int64]) -> Int64? {
+        let own = d.map { $0.enumValues.isEmpty ? $0.enumAllValues : $0.enumValues } ?? []
+        return own.first { format($0) == label } ?? table.first { format($0) == label }
+    }
+
     public func setShutterSpeed(_ v: String) async throws {
-        guard let val = SonyValue.fullShutterTable.first(where: { SonyValue.shutter($0) == v }) else { throw UnsupportedOperation("shutter \(v)") }
+        guard let val = Self.target(v, in: prop(SonyProp.shutterSpeed), format: SonyValue.shutter, table: SonyValue.fullShutterTable) else { throw UnsupportedOperation("shutter \(v)") }
         // +1 notch = faster shutter, so the axis is -log(exposure time).
         try await setValue(SonyProp.shutterSpeed, target: val) { SonyValue.shutterSeconds($0).map { -log2($0) } }
     }
     public func setFNumber(_ v: String) async throws {
-        guard let val = SonyValue.fNumberTable.first(where: { SonyValue.fNumber($0) == v }) else { throw UnsupportedOperation("iris \(v)") }
+        guard let val = Self.target(v, in: prop(SonyProp.fNumber), format: SonyValue.fNumber, table: SonyValue.fNumberTable) else { throw UnsupportedOperation("iris \(v)") }
         try await setValue(SonyProp.fNumber, target: val) { $0 > 0 ? log2(Double($0)) : nil }
     }
     public func setISO(_ v: String) async throws {

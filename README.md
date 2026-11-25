@@ -23,6 +23,9 @@ setting, and reconnect. macOS's Image Capture service grabs every PTP camera at 
 releases it automatically when you click Connect USB. If a different app (Imaging Edge, Capture One)
 holds the camera, the error names it: quit that app and connect again.
 
+Newer Sony bodies in PC Remote mode use the same connection (Mac over USB, shared to iPhone and iPad through the
+bridge). Only the α6400 has been tested on hardware. Other brands are not supported yet.
+
 ### Wi-Fi
 
 1. **Camera:** MENU → Network → *Ctrl w/ Smartphone* → **On**, then *Connection*.
