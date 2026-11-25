@@ -215,7 +215,9 @@ public enum ShotQualityAnalyzer {
     static func largestFace(_ image: CGImage, orientation: CGImagePropertyOrientation) -> CGRect? {
         let req = VNDetectFaceRectanglesRequest()
         try? VNImageRequestHandler(cgImage: image, orientation: orientation, options: [:]).perform([req])
-        guard let b = (req.results ?? []).map(\.boundingBox).filter({ $0.width > 0.04 }).max(by: { $0.width * $0.height < $1.width * $1.height }) else { return nil }
+        let boxes: [CGRect] = (req.results ?? []).map { $0.boundingBox }
+        let faces = boxes.filter { $0.width > 0.04 }
+        guard let b = faces.max(by: { (l: CGRect, r: CGRect) -> Bool in l.width * l.height < r.width * r.height }) else { return nil }
         return unrotate(CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height), orientation)
     }
 
