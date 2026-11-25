@@ -14,8 +14,16 @@ struct CaptureDownloader {
     var timeout: Duration = .seconds(15)
     var maxObjects = 4
 
-    /// Waits up to `timeout` for the first object, then drains the queue. Empty if nothing arrived in time.
+    /// Everything at once; see `run(_:)`.
     func run() async throws -> [Object] {
+        var out: [Object] = []
+        _ = try await run { out.append($0) }
+        return out
+    }
+
+    /// Waits up to `timeout` for the first object, then drains the queue, handing each object over before the next one
+    /// is fetched: a JPEG must not wait for its much larger RAW. Returns how many there were.
+    func run(_ deliver: (Object) throws -> Void) async throws -> Int {
         let clock = ContinuousClock()
         let deadline = clock.now + timeout
         var count = try await pending()
@@ -23,16 +31,17 @@ struct CaptureDownloader {
             try await Task.sleep(for: pollInterval)
             count = try await pending()
         }
-        var out: [Object] = []
-        while count > 0, out.count < maxObjects {
+        var n = 0
+        while count > 0, n < maxObjects {
             let info: Data, data: Data
             do { (info, data) = try await fetchNext() } catch is QueueEmpty { break }
             let (format, name) = Self.parseObjectInfo(info)
-            let fallback = "capture-\(Int(Date().timeIntervalSince1970))-\(out.count + 1)" + (format == 0x3801 ? ".JPG" : ".ARW")
-            out.append(Object(format: format, filename: name.isEmpty ? fallback : name, data: data))
+            let fallback = "capture-\(Int(Date().timeIntervalSince1970))-\(n + 1)" + (format == 0x3801 ? ".JPG" : ".ARW")
+            n += 1
+            try deliver(Object(format: format, filename: name.isEmpty ? fallback : name, data: data))
             count = try await pending()
         }
-        return out
+        return n
     }
 
     /// PTP ObjectInfo dataset: StorageID u32, ObjectFormat u16 (byte 4), ProtectionStatus u16, ObjectCompressedSize u32,

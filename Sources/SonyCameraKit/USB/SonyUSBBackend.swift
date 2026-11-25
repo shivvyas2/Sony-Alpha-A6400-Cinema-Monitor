@@ -511,17 +511,16 @@ public final class SonyUSBBackend: CameraBackend, @unchecked Sendable {
             },
             timeout: .seconds(2))
         do {
-            let objects = try await downloader.run()
-            guard !objects.isEmpty else {
-                // Stale flag: do not hammer the camera until the value changes.
-                captureLock.withLock { lastEmptyDrainValue = raw }
-                return
-            }
             let now = Date()
-            for o in objects {
+            let n = try await downloader.run { o in
                 let url = try CaptureStore.write(o.data, base: saveDirectory, filename: o.filename, date: now)
                 captures.send(.image(CapturedImage(url: url, kind: CapturedImage.kind(objectFormat: o.format, filename: o.filename),
                                                    filename: o.filename, takenAt: now, shotIndex: shot)))
+            }
+            guard n > 0 else {
+                // Stale flag: do not hammer the camera until the value changes.
+                captureLock.withLock { lastEmptyDrainValue = raw }
+                return
             }
             captures.send(.finished(shotIndex: shot))
         } catch {

@@ -18,7 +18,7 @@ public final class PhotoSaver {
     /// Call whenever the session's shots change; each file is saved once.
     public func sync(_ shots: [CapturedShot]) {
         guard autoSave else { return }
-        for image in shots.compactMap(\.jpeg) where status[image.id] == nil { save(image) }
+        for image in shots.compactMap(\.jpeg) where !image.isPreview && status[image.id] == nil { save(image) }
     }
 
     public func save(_ image: CapturedImage) {

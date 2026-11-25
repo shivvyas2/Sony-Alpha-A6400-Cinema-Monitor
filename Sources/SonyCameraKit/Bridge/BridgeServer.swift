@@ -6,7 +6,7 @@ import Network
 ///   GET  /events    text/event-stream of BridgeState on every change (heartbeat every 5 s)
 ///   GET  /stream    endless byte stream of the camera's own JPEG frames, MJPEG-style framed, untouched
 ///   GET  /shots     text/event-stream of BridgeShot: this session's JPEGs, then each new one
-///   GET  /shot/<id> that JPEG, full size
+///   GET  /shot/<id> that JPEG, full size; /shot/<id>/preview is a screen-sized copy
 ///   POST /cmd       JSON BridgeCommand → JSON BridgeReply
 /// Advertised over Bonjour as `_cinemahud._tcp`.
 public final class BridgeServer: @unchecked Sendable {
@@ -33,7 +33,9 @@ public final class BridgeServer: @unchecked Sendable {
     private let serviceName: String
 
     public func start(port: UInt16 = Bridge.defaultPort) throws {
-        let params = NWParameters.tcp
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true      // small state updates and replies go out at once
+        let params = NWParameters(tls: nil, tcp: tcp)
         params.allowLocalEndpointReuse = true
         let l = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
         l.service = NWListener.Service(name: serviceName, type: Bridge.serviceType)
@@ -114,7 +116,9 @@ public final class BridgeServer: @unchecked Sendable {
             heartbeat.cancel(); conn.cancel()
         case ("GET", let path) where path.hasPrefix("/shot/"):
             // Looked up by id on the shelf, never as a path.
-            if let id = UUID(uuidString: String(path.dropFirst(6))), let url = shots?.url(id), let data = try? Data(contentsOf: url) {
+            let preview = path.hasSuffix("/preview")
+            if let id = UUID(uuidString: String(path.dropFirst(6).dropLast(preview ? 8 : 0))), let url = shots?.url(id),
+               let data = preview ? BridgePreview.jpeg(for: url) : try? Data(contentsOf: url) {
                 send(conn, status: 200, type: "image/jpeg", body: data)
             } else {
                 send(conn, status: 404, type: "text/plain", body: Data("not found\n".utf8))
@@ -127,7 +131,8 @@ public final class BridgeServer: @unchecked Sendable {
                 guard self.isOpen(conn) else { break }
                 var part = Data("--\(Bridge.streamBoundary)\r\nContent-Type: image/jpeg\r\nContent-Length: \(jpeg.count)\r\n\r\n".utf8)
                 part.append(jpeg); part.append(Data("\r\n".utf8))
-                write(conn, part)
+                // The next frame is picked up once this one is out: a slow link skips frames instead of falling behind.
+                guard await writeAndWait(conn, part) else { break }
             }
             conn.cancel()
         case ("GET", "/"):
@@ -152,6 +157,10 @@ public final class BridgeServer: @unchecked Sendable {
     private func send(_ conn: NWConnection, status: Int, type: String, body: Data) {
         sendHead(conn, status: status, headers: ["Content-Type": type, "Content-Length": "\(body.count)", "Connection": "close"])
         conn.send(content: body, completion: .contentProcessed { _ in conn.cancel() })
+    }
+
+    private func writeAndWait(_ conn: NWConnection, _ data: Data) async -> Bool {
+        await withCheckedContinuation { c in conn.send(content: data, completion: .contentProcessed { c.resume(returning: $0 == nil) }) }
     }
 
     private func write(_ conn: NWConnection, _ data: Data) {

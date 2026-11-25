@@ -11,6 +11,9 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
     public var saveDirectory: URL = CaptureStore.defaultBase
     private var shotTask: Task<Void, Never>?
     private var wantsShots = false
+    private var queue = BridgeFetchQueue()
+    private var fetcher: Task<Void, Never>?
+    private var previewed: Set<UUID> = []
     private let defaults: UserDefaults
     private static let seenKey = "bridgeShotsReceived"
 
@@ -44,11 +47,11 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
 
     /// `connect` may follow on the same backend (CameraSession.reconnect), so a fresh URLSession is put in place.
     public func disconnect() async {
-        let (task, old) = lock.withLock { () -> (Task<Void, Never>?, URLSession) in
-            defer { shotTask = nil; session = Self.makeSession() }
-            return (shotTask, session)
+        let (tasks, old) = lock.withLock { () -> ([Task<Void, Never>?], URLSession) in
+            defer { shotTask = nil; fetcher = nil; queue = BridgeFetchQueue(); session = Self.makeSession() }
+            return ([shotTask, fetcher], session)
         }
-        task?.cancel()
+        tasks.forEach { $0?.cancel() }
         old.invalidateAndCancel()
     }
 
@@ -82,7 +85,7 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
                         buffer.removeSubrange(buffer.startIndex ..< r.upperBound)
                         if event == ": ready" { wait = 1; continue }
                         guard event.hasPrefix("data: "), let s = try? JSONDecoder().decode(BridgeShot.self, from: Data(event.dropFirst(6).utf8)) else { continue }
-                        if !received.contains(s.id.uuidString) { await fetch(s) }
+                        want(s)
                         if Task.isCancelled { break }
                     }
                 }
@@ -105,6 +108,49 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
         set { defaults.set(Array(newValue.suffix(1000)), forKey: Self.seenKey) }
     }
 
+    private func want(_ s: BridgeShot) {
+        guard !received.contains(s.id.uuidString) else { return }
+        if s.replay { enqueue(s); return }
+        guard !lock.withLock({ queue.contains(s.id) || previewed.contains(s.id) }) else { return }
+        Task { [weak self] in
+            await self?.showPreview(s)
+            self?.enqueue(s)
+        }
+    }
+
+    /// One download at a time, so the newest photo has the whole link.
+    private func enqueue(_ s: BridgeShot) {
+        lock.withLock {
+            guard shotTask != nil, queue.add(s), fetcher == nil else { return }
+            fetcher = Task { [weak self] in
+                while !Task.isCancelled, let next = self?.takeNext() {
+                    await self?.fetch(next)
+                    if !Task.isCancelled { self?.lock.withLock { self?.queue.done(next.id) } }
+                }
+            }
+        }
+    }
+
+    private func takeNext() -> BridgeShot? {
+        lock.withLock {
+            let s = Task.isCancelled ? nil : queue.next()
+            if s == nil, !Task.isCancelled { fetcher = nil }
+            return s
+        }
+    }
+
+    /// The screen-sized copy, at once. A Mac without previews answers 404 and the photo simply comes whole.
+    private func showPreview(_ s: BridgeShot) async {
+        var req = URLRequest(url: baseURL.appendingPathComponent("shot/\(s.id.uuidString)/preview"))
+        req.timeoutInterval = 3
+        guard let (data, resp) = try? await current.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { return }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(s.id.uuidString).jpg")
+        guard !received.contains(s.id.uuidString), (try? data.write(to: file)) != nil else { return }
+        lock.withLock { _ = previewed.insert(s.id) }
+        captures.send(.image(CapturedImage(url: file, kind: .jpeg, filename: (s.filename as NSString).lastPathComponent, takenAt: s.takenAt,
+                                           shotIndex: s.shotIndex, id: s.id, isPreview: true)))
+    }
+
     private func fetch(_ s: BridgeShot) async {
         for attempt in 1 ... 3 {
             do {
@@ -118,7 +164,7 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
                 return
             } catch {
                 if Task.isCancelled { return }
-                if attempt == 3 { captures.send(.failed(shotIndex: -1, message: "Photo transfer from the Mac failed: \(error.localizedDescription)")); return }
+                if attempt == 3 { captures.send(.failed(shotIndex: lock.withLock { previewed.contains(s.id) } ? s.shotIndex : -1, message: "Photo transfer from the Mac failed: \(error.localizedDescription)")); return }
                 try? await Task.sleep(for: .seconds(1))
             }
         }

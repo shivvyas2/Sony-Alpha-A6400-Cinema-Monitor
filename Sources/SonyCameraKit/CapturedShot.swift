@@ -50,6 +50,12 @@ public struct ShotLog: Sendable, Equatable {
     public mutating func apply(_ event: CaptureEvent, exposure: ExposureSnapshot, afPoint: CGPoint?) -> Change {
         switch event {
         case .image(let img):
+            // The file behind a preview: the same photo, whatever its number is after a reconnect.
+            if img.kind == .jpeg, let i = shots.firstIndex(where: { $0.jpeg?.id == img.id }) {
+                guard !img.isPreview, shots[i].jpeg?.isPreview == true else { return .none }
+                shots[i].jpeg = img; shots[i].error = nil; shots[i].transferring = false
+                return .updated(shots[i])
+            }
             if let i = shots.firstIndex(where: { $0.id == img.shotIndex }) {
                 if img.kind == .jpeg { shots[i].jpeg = img } else { shots[i].raw = img }
                 return .updated(shots[i])

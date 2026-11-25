@@ -191,25 +191,28 @@ public final class CameraSession {
         var exposure = ExposureSnapshot(state: state)
         var late = false
         if case .image(let image) = event, image.catchUp { late = true; af = nil; exposure = ExposureSnapshot(state: CameraState()) }
+        var changed: CapturedShot?
         switch shotLog.apply(event, exposure: exposure, afPoint: af) {
         case .newShot(let shot):
+            changed = shot
             if !late { reviewShot = shot }           // auto review, like the body's own display
         case .updated(let shot):
+            changed = shot
             if reviewShot?.id == shot.id { reviewShot = shot }
             if let e = shot.error { lastError = e }
         case .none:
             if case .failed(_, let message) = event { lastError = message }
         }
-        if case .image(let image) = event {
+        if case .image(let image) = event, !image.isPreview, let shot = changed {
             if image.kind == .jpeg { bridgeShots.add(image) }
-            measure(image, afPoint: shotLog.shot(image.shotIndex)?.afPoint)
+            measure(image, in: shot)
         }
     }
 
     /// Measures the file off the main thread. The JPEG wins over the RAW when both arrive.
-    private func measure(_ image: CapturedImage, afPoint: CGPoint?) {
-        if image.kind == .raw, quality[image.shotIndex] != nil || shotLog.shot(image.shotIndex)?.jpeg != nil { return }
-        let url = image.url, id = image.shotIndex
+    private func measure(_ image: CapturedImage, in shot: CapturedShot) {
+        if image.kind == .raw, quality[shot.id] != nil || shot.jpeg != nil { return }
+        let url = image.url, id = shot.id, afPoint = shot.afPoint
         Task { [weak self] in
             let q = await Task.detached(priority: .userInitiated) { autoreleasepool { ShotQualityAnalyzer.analyze(url: url, afPoint: afPoint) } }.value
             if let q { self?.quality[id] = q }

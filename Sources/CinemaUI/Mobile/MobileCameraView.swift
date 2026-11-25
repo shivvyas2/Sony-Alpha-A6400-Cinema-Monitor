@@ -71,6 +71,7 @@ public struct MobileCameraView: View {
         .onChange(of: overlays.feedColorSpace) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.rotation) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.shootingMode) { _, _ in reprocess(session.frame) }
+        .onChange(of: session.reviewShot == nil) { _, live in if live { reprocess(session.frame) } }
         .onChange(of: session.captures.last?.id) { _, id in
             guard let id else { return }
             freshShot = id
@@ -501,6 +502,7 @@ public struct MobileCameraView: View {
 
     private func reprocess(_ frame: CIImage?) {
         guard let frame else { processed = nil; scope = nil; return }
+        if session.reviewShot != nil, overlays.shootingMode == .photo { return }      // the review screen covers it
         let source = frame.matchedToWorkingSpace(from: overlays.feedColorSpace.cgColorSpace) ?? frame
         let video = overlays.shootingMode == .video
         processed = processor.pipeline(source, peaking: overlays.peaking, zebra: video && overlays.zebra, zebraLevel: overlays.zebraLevel,

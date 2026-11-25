@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 /// Wire format shared by the Mac bridge server and the iOS bridge client.
 /// The Mac keeps the camera on USB (or Wi-Fi) and re-serves the camera's own JPEG frames untouched,
@@ -163,6 +164,39 @@ public final class BridgeShotShelf: @unchecked Sendable {
     }
     private static func shot(_ i: CapturedImage, replay: Bool) -> BridgeShot {
         BridgeShot(id: i.id, filename: i.filename, takenAt: i.takenAt, shotIndex: i.shotIndex, replay: replay)
+    }
+}
+
+/// What a device still has to fetch: new shots first, in order, then the older ones.
+struct BridgeFetchQueue {
+    private var new: [BridgeShot] = [], older: [BridgeShot] = []
+    private var known: Set<UUID> = []
+
+    /// False when the photo is already waiting or being fetched.
+    mutating func add(_ s: BridgeShot) -> Bool {
+        guard known.insert(s.id).inserted else { return false }
+        if s.replay { older.append(s) } else { new.append(s) }
+        return true
+    }
+    mutating func next() -> BridgeShot? { !new.isEmpty ? new.removeFirst() : (older.isEmpty ? nil : older.removeFirst()) }
+    mutating func done(_ id: UUID) { known.remove(id) }
+    func contains(_ id: UUID) -> Bool { known.contains(id) }
+}
+
+/// A screen-sized copy of a photo, so a phone can show it long before the 10–20 MB file is across.
+enum BridgePreview {
+    static let longEdge = 2048
+    /// Pixels stay as the sensor recorded them, with the orientation tag, exactly like the full file.
+    static func jpeg(for url: URL) -> Data? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let img = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                                                    kCGImageSourceThumbnailMaxPixelSize: longEdge] as CFDictionary) else { return nil }
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let out = NSMutableData()
+        guard let dst = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dst, img, [kCGImageDestinationLossyCompressionQuality: 0.75,
+                                              kCGImagePropertyOrientation: props?[kCGImagePropertyOrientation] ?? 1] as CFDictionary)
+        return CGImageDestinationFinalize(dst) ? out as Data : nil
     }
 }
 

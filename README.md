@@ -106,7 +106,8 @@ iPad for a few seconds after a still. Turn it off in Settings.
 **On iPhone and iPad** each JPEG is also added to Photos (add-only access; off in Settings), over the camera's
 Wi-Fi or through the Mac bridge (CinemaHUD 2.5 or later on the Mac), which hands over every JPEG of the Mac's session,
 including those taken before the phone connected or while it was away. RAW stays on the card: set *File Format* to RAW+JPEG, and on USB *Still Img. Save
-Dest.* to **PC+Camera**. **Export** opens the share menu for Lightroom, Instagram, AirDrop and the rest. The camera's
+Dest.* to **PC+Camera**. Through the Mac a screen-sized preview shows at once and the full file takes its place. Pinch to zoom,
+double-tap for 100 %. **Export** opens the share menu for Lightroom, Instagram, AirDrop and the rest. The camera's
 own Wi-Fi has no internet, so uploads wait until you leave it.
 
 The bridge has no password: anyone on the same network can see the live view, control the camera and fetch this
@@ -262,8 +263,8 @@ Still capture and half-press AF over USB are implemented but were only exercised
 where the body ignores them; test them in a stills mode.
 
 Photo check, saving to Photos and the bridge's photo transfer have been exercised against the simulator and real
-α6400 JPEGs; transfer from a camera body is pending. Photo mode: RAW+JPEG transfer, body-triggered transfer, auto review and the focus verdict have been
-exercised against the simulator only; hardware verification pending.
+α6400 JPEGs; transfer from a camera body is pending. Photo mode: RAW+JPEG transfer over USB to the Mac works on an α6400; body-triggered transfer, auto review and the focus verdict have been
+exercised against the simulator only.
 
 Field audio: arm a Scarlett 2i2 (meters follow input) — pending; REC on the α6400 produces a WAV of
 clip length + ~4 s — pending; Logic 11 chases MTC and records on REC — pending; Sync Takes on a real
