@@ -34,7 +34,7 @@ public enum LegalText {
 
     # Photos and recordings
 
-    Images the camera hands over during a session are saved on this device, in the app's own folder (visible in the Files app under CinemaHUD). They stay on the device until you delete them. The app does not read your photo library and does not upload anything.
+    Images the camera hands over during a session are saved on this device, in the app's own folder (visible in the Files app under CinemaHUD). JPEGs are also added to your photo library, if you allow it; you can turn that off in Settings. The app can only add to the library, never read it. Blur, exposure and grain are measured on the device. Files stay on the device until you delete them, and the app does not upload anything. Export hands a photo to the app you pick in the share menu.
 
     # Settings
 

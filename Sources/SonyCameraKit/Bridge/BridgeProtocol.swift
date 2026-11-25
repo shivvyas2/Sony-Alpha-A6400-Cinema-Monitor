@@ -129,6 +129,43 @@ public struct BridgeCommand: Codable, Sendable {
 
 public struct BridgeReply: Codable, Sendable { public var ok: Bool; public var error: String?; public init(ok: Bool, error: String? = nil) { self.ok = ok; self.error = error } }
 
+/// One JPEG the Mac has for its iPhones and iPads: announced on /shots, fetched from /shot/<id>.
+public struct BridgeShot: Codable, Sendable, Equatable {
+    public var id: UUID
+    public var filename: String
+    public var takenAt: Date
+    public var shotIndex: Int
+    /// Taken before this client's connection opened.
+    public var replay: Bool
+}
+
+/// The JPEGs of this session the Mac offers over the bridge. Only files put here can be fetched; nothing else on disk.
+public final class BridgeShotShelf: @unchecked Sendable {
+    private let lock = NSLock()
+    private var images: [CapturedImage] = []
+    private let added = Broadcaster<BridgeShot>()
+    static let limit = 200
+    public init() {}
+
+    public func add(_ image: CapturedImage) {
+        lock.withLock {
+            images.append(image)
+            if images.count > Self.limit { images.removeFirst(images.count - Self.limit) }
+        }
+        added.send(Self.shot(image, replay: false))
+    }
+    func url(_ id: UUID) -> URL? { lock.withLock { images.first { $0.id == id }?.url } }
+    /// Everything so far (marked as replay) and the stream of what comes next. A shot landing in between can show up
+    /// in both; clients key on the id.
+    func subscribe() -> (past: [BridgeShot], next: AsyncStream<BridgeShot>) {
+        let next = added.stream(buffering: .unbounded)
+        return (lock.withLock { images }.map { Self.shot($0, replay: true) }, next)
+    }
+    private static func shot(_ i: CapturedImage, replay: Bool) -> BridgeShot {
+        BridgeShot(id: i.id, filename: i.filename, takenAt: i.takenAt, shotIndex: i.shotIndex, replay: replay)
+    }
+}
+
 /// Fan-out of values to any number of async consumers (frames, state).
 public final class Broadcaster<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()

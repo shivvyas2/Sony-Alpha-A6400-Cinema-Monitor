@@ -103,6 +103,11 @@ public final class OverlaySettings {
         didSet { UserDefaults.standard.set(assist, forKey: "assist") }
     }
 
+    /// Blur / exposure / grain strip on captured photos. Remembered across launches.
+    public var qualityCheck: Bool = UserDefaults.standard.object(forKey: "qualityCheck") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(qualityCheck, forKey: "qualityCheck") }
+    }
+
     /// The LUT that should be applied to the feed right now, if any.
     public var activeLUT: (data: Data, dimension: Int)? {
         guard lutOn else { return nil }

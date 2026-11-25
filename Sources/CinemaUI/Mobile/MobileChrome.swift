@@ -5,10 +5,18 @@ import SonyCameraKit
 enum MobileMetrics {
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
     static var target: CGFloat { isPad ? 52 : 44 }
-    static var railWidth: CGFloat { isPad ? 72 : 60 }
+    static var railWidth: CGFloat { isPad ? 72 : 66 }
     /// Width of the side panel that replaces bottom sheets in landscape: a narrow column over the
     /// picture's right edge, like a cinema monitor's menu list, so most of the feed stays in view.
     static var panelWidth: CGFloat { isPad ? 260 : 220 }
+}
+
+/// Size of a tool button: fixed by default, set by layouts that share out the room they have.
+struct MobileToolSizeKey: EnvironmentKey {
+    static var defaultValue: CGSize { CGSize(width: MobileMetrics.target + 4, height: MobileMetrics.target) }
+}
+extension EnvironmentValues {
+    var mobileToolSize: CGSize { get { self[MobileToolSizeKey.self] } set { self[MobileToolSizeKey.self] = newValue } }
 }
 
 /// Non-nil while a sheet's content is hosted in the landscape side panel; calling it closes the panel.
@@ -89,14 +97,16 @@ struct MobileToolButton: View {
     var active = false
     var enabled = true
     let action: () -> Void
+    @Environment(\.mobileToolSize) private var size
     var body: some View {
+        let big = size.height > MobileMetrics.target + 4
         Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: MobileMetrics.isPad ? 20 : 17, weight: .semibold))
-                Text(label).font(.system(size: 8.5, weight: .bold)).tracking(0.6).lineLimit(1).minimumScaleFactor(0.7)
+            VStack(spacing: size.height < 40 ? 1 : 3) {
+                Image(systemName: icon).font(.system(size: MobileMetrics.isPad || big ? 20 : (size.height < 40 ? 15 : 17), weight: .semibold))
+                Text(label).font(.system(size: big ? 9.5 : 8.5, weight: .bold)).tracking(0.6).lineLimit(1).minimumScaleFactor(0.7).padding(.horizontal, 2)
             }
             .foregroundStyle(active ? Color.black : Theme.text)
-            .frame(width: MobileMetrics.target + 4, height: MobileMetrics.target)
+            .frame(width: size.width, height: size.height)
             .background(active ? Theme.accent : Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
@@ -112,16 +122,18 @@ struct MobileReadout: View {
     let value: String
     var enabled = true
     var accent: Color = Theme.text
+    /// Share the row's width with the other readouts instead of taking a fixed minimum.
+    var flexible = false
     var onStep: (Int) -> Void = { _ in }
     var onTap: () -> Void = {}
     var body: some View {
         ScrollStepper(onStep: { if enabled { onStep($0) } }) {
             Button(action: { if enabled { onTap() } }) {
                 VStack(spacing: 2) {
-                    Text(label).font(Theme.label(9)).tracking(1.2).foregroundStyle(Theme.dim)
+                    Text(label).font(Theme.label(9)).tracking(flexible ? 0.8 : 1.2).foregroundStyle(Theme.dim).lineLimit(1).minimumScaleFactor(0.7)
                     Text(value).font(Theme.strip(MobileMetrics.isPad ? 20 : 17)).foregroundStyle(enabled ? accent : Theme.faint).lineLimit(1).minimumScaleFactor(0.6)
                 }
-                .frame(minWidth: MobileMetrics.isPad ? 76 : 58, minHeight: MobileMetrics.target)
+                .frame(minWidth: flexible ? 0 : (MobileMetrics.isPad ? 76 : 58), maxWidth: flexible ? .infinity : nil, minHeight: MobileMetrics.target)
                 .padding(.horizontal, MobileMetrics.isPad ? 8 : 2)
                 .contentShape(Rectangle())
             }
@@ -329,6 +341,7 @@ struct SharpnessBar: View {
 /// This session's shots; tap to review.
 struct MobileFilmstrip: View {
     @Environment(CameraSession.self) private var session
+    @Environment(OverlaySettings.self) private var overlays
     @State private var thumbs = ThumbnailCache()
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -346,6 +359,11 @@ struct MobileFilmstrip: View {
                         }
                         .frame(width: 64, height: 43).clipped()
                         .overlay(Rectangle().stroke(Color.white.opacity(0.6), lineWidth: 1))
+                        .overlay(alignment: .topLeading) {
+                            if overlays.qualityCheck, let q = session.quality[shot.id], q.overall == .caution || q.overall == .bad {
+                                Circle().fill(QualityOverlay.color(q.overall)).frame(width: 8, height: 8).padding(4)
+                            }
+                        }
                     }
                     .buttonStyle(.plain)
                 }

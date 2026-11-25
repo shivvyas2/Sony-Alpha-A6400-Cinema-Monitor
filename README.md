@@ -94,6 +94,20 @@ between JPEG and RAW once both are in, ← / → step through the shots, Escape 
 Return or Space fire the shutter or AF and leave review too. Thumbnails of the session's shots sit
 along the bottom of the live view.
 
+**Photo check.** Every shot is measured on its own pixels and the result shows as a strip over the picture:
+BLUR (sharp, soft, focus missed, motion, blurred), EXPOSURE (under / over in stops, or the share of clipped
+highlights) and GRAIN (noise of the smoothest areas at 100 %). It is advice: a night scene or a blurred background
+can be what you wanted. Measured on the device; calibrated on α6400 JPEGs. In video mode the strip shows over the live view on iPhone and
+iPad for a few seconds after a still. Turn it off in Settings.
+
+**On iPhone and iPad** each JPEG is also added to Photos (add-only access; off in Settings), over the camera's
+Wi-Fi or through the Mac bridge. RAW stays on the card: set *File Format* to RAW+JPEG, and on USB *Still Img. Save
+Dest.* to **PC+Camera**. **Export** opens the share menu for Lightroom, Instagram, AirDrop and the rest. The camera's
+own Wi-Fi has no internet, so uploads wait until you leave it.
+
+The bridge has no password: anyone on the same network can see the live view, control the camera and fetch this
+session's JPEGs while the Mac is connected. Turn it off in Camera › Share Camera when you do not need it.
+
 ### The monitor
 
 The layout follows a cinema viewfinder. The top strip carries exposure: FPS (project), SHUTTER
@@ -243,7 +257,8 @@ offers), movie record start/stop with true recording state, battery. Touch AF is
 Still capture and half-press AF over USB are implemented but were only exercised in movie mode,
 where the body ignores them; test them in a stills mode.
 
-Photo mode: RAW+JPEG transfer, body-triggered transfer, auto review and the focus verdict have been
+Photo check, saving to Photos and the bridge's photo transfer have been exercised against the simulator and real
+α6400 JPEGs; transfer from a camera body is pending. Photo mode: RAW+JPEG transfer, body-triggered transfer, auto review and the focus verdict have been
 exercised against the simulator only; hardware verification pending.
 
 Field audio: arm a Scarlett 2i2 (meters follow input) — pending; REC on the α6400 produces a WAV of

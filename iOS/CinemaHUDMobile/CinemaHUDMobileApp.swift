@@ -7,12 +7,14 @@ import DuoKit
 struct CinemaHUDMobileApp: App {
     @State private var session = CameraSession()
     @State private var overlays = OverlaySettings()
+    @State private var saver = PhotoSaver()
 
     var body: some Scene {
         WindowGroup {
             MobileRootView()
                 .environment(session)
                 .environment(overlays)
+                .environment(saver)
                 .preferredColorScheme(.dark)
                 .statusBarHidden(true)
                 .persistentSystemOverlays(.hidden)
@@ -43,6 +45,7 @@ extension CinemaHUDMobileApp {
 struct MobileRootView: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @Environment(PhotoSaver.self) private var saver
     @State private var showIntro = ProcessInfo.processInfo.environment["CINEMAHUD_NO_INTRO"] == nil
 
     var body: some View {
@@ -64,6 +67,7 @@ struct MobileRootView: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
+        .onChange(of: session.captures) { _, shots in saver.sync(shots) }
         .onChange(of: session.state.shootMode, initial: true) { _, dial in overlays.modeResolver.dial(dial) }
         .task {
             #if DEBUG

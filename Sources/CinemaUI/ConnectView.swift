@@ -16,18 +16,34 @@ public struct ConnectView: View {
     @State private var discovery = BridgeDiscovery()
 
     public var body: some View {
-        VStack(spacing: 28) {
+        #if os(macOS)
+        content(sideBySide: nil).padding(40)
+        #else
+        // Centred when it fits, scrolls when it does not (phones in landscape, small phones).
+        GeometryReader { geo in
+            ScrollView(showsIndicators: false) {
+                content(sideBySide: geo.size.width >= 620)
+                    .padding(.horizontal, min(40, max(16, geo.size.width * 0.04))).padding(.vertical, 20)
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
+        }
+        #endif
+    }
+
+    /// `sideBySide` nil = whichever fits.
+    private func content(sideBySide: Bool?) -> some View {
+        VStack(spacing: sideBySide == true ? 18 : 28) {
             VStack(spacing: 8) {
-                Text("CINEMA HUD").font(.system(size: 30, weight: .bold)).tracking(10).foregroundStyle(Theme.text)
+                Text("CINEMA HUD").font(.system(size: 30, weight: .bold)).tracking(10).foregroundStyle(Theme.text).lineLimit(1).minimumScaleFactor(0.6)
                 Text("Remote monitor for the Sony α6400").font(.system(size: 13)).foregroundStyle(Theme.dim)
             }
 
-            AdaptiveStack(spacing: 16) {
+            AdaptiveStack(spacing: 16, sideBySide: sideBySide) {
                 #if !os(macOS)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("MAC BRIDGE").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.text)
                     Text("Connect the camera to a Mac running CinemaHUD by USB; the Mac shares it here over Wi-Fi with the same picture and controls.")
-                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.85))
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
                     if bridgeHosts.isEmpty {
                         HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Looking for Macs on this network…").font(.system(size: 12)).foregroundStyle(Theme.dim) }
                     }
@@ -37,7 +53,7 @@ public struct ConnectView: View {
                                 if let url = try? await BridgeDiscovery.resolve(host) { lastBridge = url.absoluteString; await session.connectBridge(url: url) }
                             }
                         } label: {
-                            Label(host.name, systemImage: "desktopcomputer").frame(maxWidth: .infinity, alignment: .leading)
+                            Label(host.name, systemImage: "desktopcomputer").lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.borderedProminent).tint(Theme.selection).foregroundStyle(.black).disabled(isBusy)
                     }
@@ -45,7 +61,7 @@ public struct ConnectView: View {
                         TextField("mac-name.local:8899", text: $bridgeAddress)
                             .textFieldStyle(.roundedBorder).font(Theme.mono(12)).frame(maxWidth: 220)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Button("Connect") { connectBridgeManual() }.disabled(isBusy || bridgeAddress.isEmpty)
+                        Button("Connect") { connectBridgeManual() }.fixedSize().disabled(isBusy || bridgeAddress.isEmpty)
                     }
                 }
                 .frame(maxWidth: 420, alignment: .leading)
@@ -75,24 +91,25 @@ public struct ConnectView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("WI-FI").font(Theme.label(11)).tracking(3).foregroundStyle(Theme.text)
                     step(1, "On the camera: MENU → Network → Ctrl w/ Smartphone → On, then Connection.")
+                    #if os(macOS)
                     step(2, "On this Mac: join the Wi-Fi named DIRECT-xxxx:ILCE-6400.")
-                    HStack(spacing: 8) {
-                        Button {
-                            Task { await session.discoverAndConnect() }
-                        } label: {
-                            Label("Discover", systemImage: "dot.radiowaves.left.and.right").frame(width: 110)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isBusy)
-                        TextField("192.168.122.1:8080", text: $address)
-                            .textFieldStyle(.roundedBorder).font(Theme.mono(12)).frame(width: 160)
-                            .onSubmit { connectManual() }
-                        Button("Connect") { connectManual() }.disabled(isBusy || address.isEmpty)
-                    }
+                    #else
+                    step(2, "On this \(MobileMetrics.isPad ? "iPad" : "iPhone"): join the Wi-Fi named DIRECT-xxxx:ILCE-6400.")
+                    #endif
+                    #if os(macOS)
+                    HStack(spacing: 8) { discoverButton; addressField.frame(width: 160); connectButton }
+                    #else
+                    discoverButton
+                    HStack(spacing: 8) { addressField.frame(maxWidth: 220); connectButton }
+                    #endif
                     Text("Wireless, plus touch-to-focus. Same live view size as USB.")
-                        .font(.system(size: 11)).foregroundStyle(Theme.dim)
+                        .font(.system(size: 11)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
                 }
+                #if os(macOS)
                 .frame(width: 400, alignment: .leading)
+                #else
+                .frame(maxWidth: 420, alignment: .leading)
+                #endif
                 .padding(18)
                 .hudPanel()
             }
@@ -103,7 +120,6 @@ public struct ConnectView: View {
 
             statusLine
         }
-        .padding(40)
         .onAppear { if address.isEmpty { address = lastAddress }; if bridgeAddress.isEmpty { bridgeAddress = lastBridge } }
         .task {
             #if !os(macOS)
@@ -119,6 +135,28 @@ public struct ConnectView: View {
         guard let url = URL(string: s) else { return }
         lastBridge = url.absoluteString
         Task { await session.connectBridge(url: url) }
+    }
+
+    private var discoverButton: some View {
+        Button { Task { await session.discoverAndConnect() } } label: {
+            #if os(macOS)
+            Label("Discover", systemImage: "dot.radiowaves.left.and.right").frame(width: 110)
+            #else
+            Label("Discover", systemImage: "dot.radiowaves.left.and.right")
+            #endif
+        }
+        .buttonStyle(.bordered)
+        .disabled(isBusy)
+    }
+
+    private var addressField: some View {
+        TextField("192.168.122.1:8080", text: $address)
+            .textFieldStyle(.roundedBorder).font(Theme.mono(12))
+            .onSubmit { connectManual() }
+    }
+
+    private var connectButton: some View {
+        Button("Connect") { connectManual() }.fixedSize().disabled(isBusy || address.isEmpty)
     }
 
     private var isBusy: Bool {
@@ -149,7 +187,7 @@ public struct ConnectView: View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(n)").font(Theme.mono(12, weight: .bold)).foregroundStyle(.black)
                 .frame(width: 20, height: 20).background(Theme.selection, in: Circle())
-            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.85))
+            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -229,11 +267,17 @@ struct SyncTakesCard: View {
 /// Side by side when there is room, stacked on narrow screens (iPhone).
 struct AdaptiveStack<Content: View>: View {
     var spacing: CGFloat
+    /// Decided by the caller, or by what fits when nil.
+    var sideBySide: Bool? = nil
     @ViewBuilder var content: Content
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: spacing) { content }
-            VStack(alignment: .leading, spacing: spacing) { content }
+        if let sideBySide {
+            if sideBySide { HStack(alignment: .top, spacing: spacing) { content } } else { VStack(alignment: .leading, spacing: spacing) { content } }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: spacing) { content }
+                VStack(alignment: .leading, spacing: spacing) { content }
+            }
         }
     }
 }

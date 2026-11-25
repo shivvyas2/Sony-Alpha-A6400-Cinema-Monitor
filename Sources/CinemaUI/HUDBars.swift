@@ -10,10 +10,13 @@ struct HUDTouchKey: EnvironmentKey { static let defaultValue = false }
 struct HUDPickKey: EnvironmentKey { static let defaultValue: ((String) -> Void)? = nil }
 /// Edge-column actions the phone routes to its own panels or sheets instead of the desktop chrome.
 enum HUDAction { case profile, guides, menu, photo }
+/// Height of the touch edge buttons, so a whole column fits the screen it is on.
+struct HUDEdgeHeightKey: EnvironmentKey { static let defaultValue: CGFloat = 30 }
 struct HUDActionKey: EnvironmentKey { static let defaultValue: ((HUDAction) -> Void)? = nil }
 extension EnvironmentValues {
     var hudTouch: Bool { get { self[HUDTouchKey.self] } set { self[HUDTouchKey.self] = newValue } }
     var hudPick: ((String) -> Void)? { get { self[HUDPickKey.self] } set { self[HUDPickKey.self] = newValue } }
+    var hudEdgeHeight: CGFloat { get { self[HUDEdgeHeightKey.self] } set { self[HUDEdgeHeightKey.self] = newValue } }
     var hudAction: ((HUDAction) -> Void)? { get { self[HUDActionKey.self] } set { self[HUDActionKey.self] = newValue } }
 }
 
@@ -73,11 +76,12 @@ struct EdgeButton: View {
     var tint: Color? = nil
     let action: () -> Void
     @Environment(\.hudTouch) private var touch
+    @Environment(\.hudEdgeHeight) private var edgeHeight
     var body: some View {
         Button(action: action) {
             Text(title).font(.system(size: touch ? 10 : 9.5, weight: .bold)).tracking(0.6)
                 .foregroundStyle(active ? Color.black : (tint ?? Theme.text))
-                .frame(width: touch ? 54 : 46, height: touch ? 30 : 24)
+                .frame(width: touch ? 54 : 46, height: touch ? edgeHeight : 24)
                 .background(active ? Theme.accent : Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.18), lineWidth: 0.5))
                 .contentShape(Rectangle())
@@ -326,6 +330,26 @@ struct BottomStrip: View {
 
 // MARK: - Edge columns
 
+/// Touch column: buttons share the height there is, so REC, STILL and MENU are always on screen. Scrolls only when
+/// even the smallest size does not fit.
+struct FittedColumn<Content: View>: View {
+    let buttons: Int
+    /// Padding and gaps that are not buttons.
+    let extra: CGFloat
+    @ViewBuilder var content: Content
+    var body: some View {
+        GeometryReader { geo in
+            let height = (geo.size.height - extra) / CGFloat(buttons) - 2
+            ScrollView(showsIndicators: false) {
+                content.frame(minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .environment(\.hudEdgeHeight, min(38, max(20, height)))
+        }
+        .frame(width: 58)
+    }
+}
+
 struct LeftTools: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
@@ -334,8 +358,7 @@ struct LeftTools: View {
     @State private var showProfile = false
 
     var body: some View {
-        // On the phone the column is taller than the screen, so it scrolls.
-        if touch { ScrollView(showsIndicators: false) { column } } else { column }
+        if touch { FittedColumn(buttons: 11, extra: 14) { column } } else { column }
     }
 
     private var column: some View {
@@ -387,9 +410,10 @@ struct RightTools: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
     @Environment(\.hudTouch) private var touch
+    @Environment(\.hudEdgeHeight) private var edgeHeight
 
     var body: some View {
-        if touch { ScrollView(showsIndicators: false) { column } } else { column }
+        if touch { FittedColumn(buttons: 11, extra: 18) { column } } else { column }
     }
 
     private var column: some View {
@@ -419,7 +443,7 @@ struct RightTools: View {
             Spacer(minLength: touch ? 6 : 0)
             Button { Task { await session.toggleRecording() } } label: {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 3).fill(s.isRecording ? Theme.rec : Color.white.opacity(0.14)).frame(width: touch ? 54 : 46, height: touch ? 30 : 34)
+                    RoundedRectangle(cornerRadius: 3).fill(s.isRecording ? Theme.rec : Color.white.opacity(0.14)).frame(width: touch ? 54 : 46, height: touch ? edgeHeight + 4 : 34)
                     HStack(spacing: 5) {
                         Circle().fill(s.isRecording ? Color.white : Theme.rec).frame(width: 10, height: 10)
                         Text(s.isRecording ? "STOP" : "REC").font(.system(size: 9.5, weight: .bold)).foregroundStyle(Theme.text)
@@ -465,6 +489,7 @@ struct SettingsPanel: View {
                         row("Project frame rate") { Picker("", selection: $ov.projectFPS) { ForEach([24, 25, 30, 48, 50, 60], id: \.self) { Text("\($0) fps").tag($0) } } }
                         row("Camera index") { Picker("", selection: $ov.cameraIndex) { ForEach(["A", "B", "C", "D"], id: \.self) { Text($0).tag($0) } } }
                         row("Reel") { Stepper(value: $ov.reel, in: 1 ... 999) { Text(String(format: "%04d", overlays.reel)).font(Theme.mono(12)) } }
+                        row("Photo check") { Toggle("", isOn: $ov.qualityCheck).toggleStyle(.switch).controlSize(.small) }
                         row("Shot assist") {
                             HStack(spacing: 8) {
                                 Toggle("", isOn: $ov.assist).toggleStyle(.switch).controlSize(.small).labelsHidden()

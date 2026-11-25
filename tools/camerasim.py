@@ -189,9 +189,9 @@ class Handler(BaseHTTPRequestHandler):
         if m == "getEvent":
             if p and p[0]:
                 with CAM.lock:
-                    v0 = CAM.version; deadline = time.time() + 8
-                    while CAM.version == v0 and time.time() < deadline: CAM.lock.wait(timeout=deadline - time.time())
-                    if CAM.version == v0: raise ApiError(2, "Timeout")
+                    deadline = time.time() + 8
+                    while not CAM.changed and time.time() < deadline: CAM.lock.wait(timeout=max(0, deadline - time.time()))
+                    if not CAM.changed: raise ApiError(2, "Timeout")
                     changed = set(CAM.changed); CAM.changed.clear()
                 return CAM.event_items(changed)
             return CAM.event_items()

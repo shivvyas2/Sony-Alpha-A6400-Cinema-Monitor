@@ -5,6 +5,8 @@ import Network
 ///   GET  /state     JSON BridgeState
 ///   GET  /events    text/event-stream of BridgeState on every change (heartbeat every 5 s)
 ///   GET  /stream    endless byte stream of the camera's own JPEG frames, MJPEG-style framed, untouched
+///   GET  /shots     text/event-stream of BridgeShot: this session's JPEGs, then each new one
+///   GET  /shot/<id> that JPEG, full size
 ///   POST /cmd       JSON BridgeCommand → JSON BridgeReply
 /// Advertised over Bonjour as `_cinemahud._tcp`.
 public final class BridgeServer: @unchecked Sendable {
@@ -17,14 +19,15 @@ public final class BridgeServer: @unchecked Sendable {
     private let states: Broadcaster<BridgeState>
     private let state: StateProvider
     private let handler: CommandHandler
+    private let shots: BridgeShotShelf
     public private(set) var port: UInt16 = 0
     public private(set) var isRunning = false
     private var connections: Set<ObjectIdentifier> = []
     private let lock = NSLock()
     public var clientCount: Int { lock.withLock { connections.count } }
 
-    public init(name: String, frames: Broadcaster<Data>, states: Broadcaster<BridgeState>, state: @escaping StateProvider, handler: @escaping CommandHandler) {
-        self.frames = frames; self.states = states; self.state = state; self.handler = handler
+    public init(name: String, frames: Broadcaster<Data>, states: Broadcaster<BridgeState>, shots: BridgeShotShelf = BridgeShotShelf(), state: @escaping StateProvider, handler: @escaping CommandHandler) {
+        self.frames = frames; self.states = states; self.shots = shots; self.state = state; self.handler = handler
         self.serviceName = name
     }
     private let serviceName: String
@@ -96,6 +99,25 @@ public final class BridgeServer: @unchecked Sendable {
                 if let d = try? JSONEncoder().encode(s) { write(conn, Data("data: ".utf8) + d + Data("\n\n".utf8)) }
             }
             heartbeat.cancel(); conn.cancel()
+        case ("GET", "/shots"):
+            sendHead(conn, status: 200, headers: ["Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive"])
+            let (past, next) = shots.subscribe()
+            func push(_ s: BridgeShot) { if let d = try? JSONEncoder().encode(s) { write(conn, Data("data: ".utf8) + d + Data("\n\n".utf8)) } }
+            past.forEach(push)
+            write(conn, Data(": ready\n\n".utf8))
+            let heartbeat = Task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(5)); self.write(conn, Data(": ping\n\n".utf8)) } }
+            for await s in next {
+                guard self.isOpen(conn) else { break }
+                push(s)
+            }
+            heartbeat.cancel(); conn.cancel()
+        case ("GET", let path) where path.hasPrefix("/shot/"):
+            // Looked up by id on the shelf, never as a path.
+            if let id = UUID(uuidString: String(path.dropFirst(6))), let url = shots.url(id), let data = try? Data(contentsOf: url) {
+                send(conn, status: 200, type: "image/jpeg", body: data)
+            } else {
+                send(conn, status: 404, type: "text/plain", body: Data("not found\n".utf8))
+            }
         case ("GET", "/stream"):
             // Framed like MJPEG (boundary + Content-Length per frame) but declared as a plain byte stream:
             // Apple's URLSession special-cases multipart/x-mixed-replace and never delivers the response.
@@ -108,7 +130,7 @@ public final class BridgeServer: @unchecked Sendable {
             }
             conn.cancel()
         case ("GET", "/"):
-            send(conn, status: 200, type: "text/plain", body: Data("CinemaHUD bridge. Endpoints: /state /events /stream /cmd\n".utf8))
+            send(conn, status: 200, type: "text/plain", body: Data("CinemaHUD bridge. Endpoints: /state /events /stream /shots /cmd\n".utf8))
         default:
             send(conn, status: 404, type: "text/plain", body: Data("not found\n".utf8))
         }

@@ -19,6 +19,7 @@ public struct MobileCameraView: View {
     @State private var sheet: MobileSheet?
     @State private var hint: String?
     @State private var isPortrait = true
+    @State private var freshShot: Int?
 
     enum MobileSheet: String, Identifiable {
         case guides, focus, zoom, format, settings, shutter, iris, iso, ev, wb, fps
@@ -70,6 +71,11 @@ public struct MobileCameraView: View {
         .onChange(of: overlays.feedColorSpace) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.rotation) { _, _ in reprocess(session.frame) }
         .onChange(of: overlays.shootingMode) { _, _ in reprocess(session.frame) }
+        .onChange(of: session.captures.last?.id) { _, id in
+            guard let id else { return }
+            freshShot = id
+            Task { try? await Task.sleep(for: .seconds(8)); if freshShot == id { freshShot = nil } }
+        }
         .onChange(of: session.phase.isConnected) { _, live in if !live { sheet = nil } }
         .onAppear {
             processor.lutCube = overlays.activeLUT
@@ -176,26 +182,47 @@ public struct MobileCameraView: View {
         case .compact, .expanded:
             VStack(spacing: 0) {
                 topBand
-                picture.frame(height: size.width * pictureAspectInverse)
-                ScrollView { portraitControls() }
+                picture.frame(height: min(size.width * pictureAspectInverse, size.height * 0.55))
+                GeometryReader { geo in
+                    ViewThatFits(in: .vertical) {
+                        portraitControls(room: geo.size).frame(maxHeight: .infinity, alignment: .top)
+                        ScrollView(showsIndicators: false) { portraitControls(room: geo.size) }
+                    }
+                }
             }
         }
     }
 
     /// `narrow`: one page of an iPhone Duo held like a book, too narrow for rows of five.
-    private func portraitControls(narrow: Bool = false) -> some View {
-        VStack(spacing: 14) {
-            ScrollView(.horizontal, showsIndicators: false) { exposureRow.padding(.horizontal, 8).frame(maxWidth: .infinity) }
-            if narrow { toolGrid } else { toolRows }
+    /// `room`: the space under the picture, which the tools grow or shrink to fill (compact and expanded layouts).
+    private func portraitControls(narrow: Bool = false, room: CGSize? = nil) -> some View {
+        VStack(spacing: room == nil ? 14 : 12) {
+            if let room, !narrow {
+                exposureRow(flexible: room.width < 600).padding(.horizontal, 8).frame(maxWidth: 600)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) { exposureRow().padding(.horizontal, 8).frame(maxWidth: .infinity) }
+            }
+            Group { if narrow { toolGrid } else { toolRows } }.environment(\.mobileToolSize, toolSize(in: room))
+            if room != nil { Spacer(minLength: 0) }
             HStack(spacing: 28) {
                 MobileToolButton(icon: "scope", label: "AF", enabled: session.state.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
                 primaryButton.avoidsFold()
                 MobileToolButton(icon: "gearshape", label: "SETTINGS") { sheet = .settings }
             }
             .padding(.top, 4)
+            if room != nil { Spacer(minLength: 0) }
             if overlays.shootingMode == .photo { MobileFilmstrip().padding(.horizontal, 12) }
         }
         .padding(.vertical, 12)
+    }
+
+    /// Five across, as wide as the screen allows; taller when there is room below.
+    private func toolSize(in room: CGSize?) -> CGSize {
+        guard let room else { return MobileToolSizeKey.defaultValue }
+        let w = min(84, max(44, (room.width - 24 - 4 * 8) / 5))
+        // Readouts, shutter row, filmstrip and paddings take about 250 pt; the two tool rows share the rest.
+        let h = min(64, max(MobileMetrics.target, (room.height - 250) / 2))
+        return CGSize(width: w, height: h)
     }
 
     /// Height / width of the displayed picture (crop and rotation applied).
@@ -228,41 +255,41 @@ public struct MobileCameraView: View {
     }
 
     private var bottomBand: some View {
-        ScrollView(.horizontal, showsIndicators: false) { exposureRow.padding(.horizontal, 8) }
+        ScrollView(.horizontal, showsIndicators: false) { exposureRow().padding(.horizontal, 8) }
             .frame(height: MobileMetrics.target + 8)
             .background(Theme.field)
     }
 
-    private var exposureRow: some View {
+    private func exposureRow(flexible: Bool = false) -> some View {
         let s = session.state
         return HStack(spacing: 2) {
             MobileReadout(label: "SHUTTER", value: s.shutterSpeed ?? "--", enabled: s.supports("setShutterSpeed"),
-                          onStep: { d in Task { await session.step(s.shutterSpeedCandidates, current: s.shutterSpeed, by: d) { await session.setShutterSpeed($0) } } },
+                          flexible: flexible, onStep: { d in Task { await session.step(s.shutterSpeedCandidates, current: s.shutterSpeed, by: d) { await session.setShutterSpeed($0) } } },
                           onTap: { sheet = .shutter })
             MobileReadout(label: "IRIS", value: s.fNumber.map { "F" + $0 } ?? "--", enabled: s.supports("setFNumber"),
-                          onStep: { d in Task { await session.step(s.fNumberCandidates, current: s.fNumber, by: d) { await session.setFNumber($0) } } },
+                          flexible: flexible, onStep: { d in Task { await session.step(s.fNumberCandidates, current: s.fNumber, by: d) { await session.setFNumber($0) } } },
                           onTap: { sheet = .iris })
             MobileReadout(label: "ISO", value: s.iso ?? "--", enabled: s.supports("setIsoSpeedRate"),
-                          onStep: { d in Task { await session.step(s.isoCandidates, current: s.iso, by: d) { await session.setISO($0) } } },
+                          flexible: flexible, onStep: { d in Task { await session.step(s.isoCandidates, current: s.iso, by: d) { await session.setISO($0) } } },
                           onTap: { sheet = .iso })
             MobileReadout(label: "EV", value: s.exposureCompensation?.label ?? "--", enabled: s.supports("setExposureCompensation") && s.exposureCompensation != nil,
                           accent: (s.exposureCompensation?.index ?? 0) == 0 ? Theme.text : Theme.accent,
-                          onStep: { d in Task { await session.stepExposureCompensation(d) } },
+                          flexible: flexible, onStep: { d in Task { await session.stepExposureCompensation(d) } },
                           onTap: { sheet = .ev })
             MobileReadout(label: "WB", value: wbValue(s), enabled: s.supports("setWhiteBalance"),
-                          onStep: { d in
+                          flexible: flexible, onStep: { d in
                               guard s.whiteBalanceMode == "Color Temperature", let k = s.colorTemperature else { return }
                               Task { await session.setWhiteBalance(mode: "Color Temperature", colorTemp: max(2500, min(9900, k + d * 100))) }
                           },
                           onTap: { sheet = .wb })
             MobileReadout(label: "FOCUS", value: s.focusMode ?? "--", enabled: true,
                           accent: s.focusStatus == "Focused" ? Theme.ok : (s.focusStatus == "Failed" ? Theme.rec : Theme.text),
-                          onTap: { sheet = .focus })
+                          flexible: flexible, onTap: { sheet = .focus })
         }
     }
 
     private var leftRail: some View {
-        ScrollView(showsIndicators: false) {
+        rail(buttons: 8) {
             VStack(spacing: 6) {
                 MobileToolButton(icon: "grid", label: "GUIDES", active: sheet == .guides || overlays.grid || overlays.frameGuides || overlays.safeAreas || overlays.diagonals) { toggle(.guides) }
                 MobileToolButton(icon: "waveform.path.ecg", label: "PEAK", active: overlays.peaking) { overlays.peaking.toggle() }
@@ -277,13 +304,23 @@ public struct MobileCameraView: View {
             }
             .padding(.vertical, 8)
         }
+    }
+
+    /// Landscape rail whose buttons shrink, to 34 pt at most, so all of them fit the phone's height.
+    private func rail<C: View>(buttons: Int, reserved: CGFloat = 0, @ViewBuilder content: @escaping () -> C) -> some View {
+        GeometryReader { geo in
+            let h = (geo.size.height - 16 - reserved) / CGFloat(buttons) - 6
+            ScrollView(showsIndicators: false) { content().frame(width: MobileMetrics.railWidth) }
+                .scrollBounceBehavior(.basedOnSize)
+                .environment(\.mobileToolSize, CGSize(width: MobileMetrics.target + 4, height: min(MobileMetrics.target, max(34, h))))
+        }
         .frame(width: MobileMetrics.railWidth)
         .background(Theme.field)
     }
 
     private var rightRail: some View {
         let s = session.state
-        return ScrollView(showsIndicators: false) {
+        return rail(buttons: 5, reserved: 70) {
             VStack(spacing: 6) {
                 MobileToolButton(icon: "scope", label: "AF", enabled: s.supports("actHalfPressShutter")) { Task { await session.autofocus() } }
                 MobileToolButton(icon: "lock", label: "AEL") { Task { await session.press(.aeLock) } }
@@ -297,8 +334,6 @@ public struct MobileCameraView: View {
             }
             .padding(.vertical, 8)
         }
-        .frame(width: MobileMetrics.railWidth)
-        .background(Theme.field)
     }
 
     private var toolRows: some View {
@@ -419,6 +454,12 @@ public struct MobileCameraView: View {
                         .padding(8).background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
                         .position(x: rect.minX + 70, y: rect.maxY - 22)
                         .allowsHitTesting(false)
+                }
+                // Video mode has no review: the newest still's check shows over the picture for a few seconds.
+                if overlays.qualityCheck, overlays.shootingMode == .video, let id = freshShot {
+                    QualityOverlay(quality: session.quality[id], compact: !MobileMetrics.isPad)
+                        .frame(maxWidth: rect.width - 24)
+                        .position(x: rect.midX, y: rect.minY + 24)
                 }
                 if overlays.shootingMode == .photo, !session.captures.isEmpty, geo.size.width > geo.size.height {
                     MobileFilmstrip().frame(width: min(rect.width - 160, 600)).position(x: rect.midX, y: rect.maxY - 30)

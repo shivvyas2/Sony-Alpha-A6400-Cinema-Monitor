@@ -5,10 +5,12 @@ import SonyCameraKit
 struct MobileSettingsView: View {
     @Environment(CameraSession.self) private var session
     @Environment(OverlaySettings.self) private var overlays
+    @Environment(PhotoSaver.self) private var saver
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         @Bindable var ov = overlays
+        @Bindable var saver = saver
         NavigationStack {
             Form {
                 Section("Connection") {
@@ -47,7 +49,9 @@ struct MobileSettingsView: View {
                 }
                 Section("Captures") {
                     HStack { Text("This session"); Spacer(); Text("\(session.captures.count) shots").foregroundStyle(Theme.dim) }
-                    Text("Files the camera hands over are saved in the Files app under CinemaHUD. Over the Mac bridge, files stay on the Mac in ~/Pictures/CinemaHUD.")
+                    Toggle("Save JPEGs to Photos", isOn: $saver.autoSave)
+                    Toggle("Photo check (blur, exposure, grain)", isOn: $ov.qualityCheck)
+                    Text("Every JPEG the camera sends is added to Photos, and kept in the Files app under CinemaHUD. Set the camera to RAW+JPEG to keep the RAW on the card; on a Mac's USB cable, set Still Img. Save Dest. to PC+Camera.")
                         .font(.footnote).foregroundStyle(Theme.dim)
                 }
                 Section("About") {

@@ -63,7 +63,12 @@ public final class CameraSession {
     public var reviewShot: CapturedShot?
     /// Where the user last clicked to check focus (fractions of the frame), used when the transport has no touch AF.
     public var focusCheckPoint: CGPoint?
+    /// Blur, exposure and grain of each shot, keyed by shot id; filled in shortly after the file lands.
+    public private(set) var quality: [Int: ShotQuality] = [:]
     @ObservationIgnored private var captureTask: Task<Void, Never>?
+    /// Backends number their shots from 1 on every connection; this keeps ids unique across reconnects.
+    @ObservationIgnored private var shotBase = 0
+    @ObservationIgnored private let bridgeShots = BridgeShotShelf()
 
     private var backend: CameraBackend?
     private var eventTask: Task<Void, Never>?
@@ -168,16 +173,20 @@ public final class CameraSession {
     private func startCaptureLoop() {
         guard let backend else { return }
         captureTask?.cancel()
+        shotBase = captures.map(\.id).max() ?? 0
+        let events = backend.captureEvents()   // subscribe now, so a shot taken during start-up is not missed
         captureTask = Task { [weak self] in
-            for await event in backend.captureEvents() {
+            for await event in events {
                 guard let self, !Task.isCancelled else { return }
                 self.handle(event)
             }
         }
     }
 
-    private func handle(_ event: CaptureEvent) {
-        let af = focusCheckPoint ?? state.touchAFPoint.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
+    func handle(_ raw: CaptureEvent) {
+        let event = raw.offset(by: shotBase)
+        let touch = state.touchAFSet ? state.touchAFPoint : nil   // unset points are the camera's default, not a choice
+        let af = focusCheckPoint ?? touch.map { CGPoint(x: $0.x / 100, y: $0.y / 100) }
         switch shotLog.apply(event, exposure: ExposureSnapshot(state: state), afPoint: af) {
         case .newShot(let shot):
             reviewShot = shot           // auto review, like the body's own display
@@ -186,6 +195,20 @@ public final class CameraSession {
             if let e = shot.error { lastError = e }
         case .none:
             if case .failed(_, let message) = event { lastError = message }
+        }
+        if case .image(let image) = event {
+            if image.kind == .jpeg { bridgeShots.add(image) }
+            measure(image, afPoint: shotLog.shot(image.shotIndex)?.afPoint)
+        }
+    }
+
+    /// Measures the file off the main thread. The JPEG wins over the RAW when both arrive.
+    private func measure(_ image: CapturedImage, afPoint: CGPoint?) {
+        if image.kind == .raw, quality[image.shotIndex] != nil || shotLog.shot(image.shotIndex)?.jpeg != nil { return }
+        let url = image.url, id = image.shotIndex
+        Task { [weak self] in
+            let q = await Task.detached(priority: .userInitiated) { autoreleasepool { ShotQualityAnalyzer.analyze(url: url, afPoint: afPoint) } }.value
+            if let q { self?.quality[id] = q }
         }
     }
 
@@ -310,7 +333,7 @@ public final class CameraSession {
     public func startBridge(name: String? = nil, port: UInt16 = Bridge.defaultPort) {
         guard bridgeServer == nil else { return }
         let host = name ?? "CinemaHUD on \(ProcessInfo.processInfo.hostName.replacingOccurrences(of: ".local", with: ""))"
-        let server = BridgeServer(name: host, frames: jpegFrames, states: bridgeStates,
+        let server = BridgeServer(name: host, frames: jpegFrames, states: bridgeStates, shots: bridgeShots,
                                   state: { [weak self] in await MainActor.run { self?.bridgeState() } },
                                   handler: { [weak self] cmd in await self?.handleBridge(cmd) ?? BridgeReply(ok: false, error: "gone") })
         do {

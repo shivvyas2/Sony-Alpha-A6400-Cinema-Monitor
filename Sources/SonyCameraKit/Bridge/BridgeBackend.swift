@@ -8,6 +8,10 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
     private var last: BridgeState?
     private let lock = NSLock()
     private let captures = CaptureBroadcaster()
+    public var saveDirectory: URL = CaptureStore.defaultBase
+    private var shotTask: Task<Void, Never>?
+    private var seenShots: Set<UUID> = []
+    private var shotsPrimed = false
 
     public var displayName: String { lock.withLock { last?.cameraName } ?? baseURL.host ?? "Mac" }
     /// What the Mac itself is connected through (USB / Wi-Fi).
@@ -29,7 +33,63 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
         return s.cameraState
     }
 
-    public func disconnect() async { session.invalidateAndCancel() }
+    public func disconnect() async {
+        lock.withLock { shotTask }?.cancel()
+        session.invalidateAndCancel()
+    }
+
+    public func captureEvents() -> AsyncStream<CaptureEvent> {
+        let stream = captures.stream()
+        lock.withLock { if shotTask == nil { shotTask = Task { [weak self] in await self?.followShots() } } }
+        return stream
+    }
+
+    /// Fetches each JPEG the Mac announces. Shots from before this connection are skipped; ones missed while the
+    /// network was down are fetched when the stream reopens. A Mac without /shots (2.4 and older) just sends none.
+    private func followShots() async {
+        var wait = 1.0
+        while !Task.isCancelled {
+            let streamer = StreamingTask()
+            do {
+                var buffer = Data()
+                for try await chunk in streamer.start(url: baseURL.appendingPathComponent("shots")) {
+                    if Task.isCancelled { break }
+                    buffer.append(chunk)
+                    while let r = buffer.range(of: Data("\n\n".utf8)) {
+                        let event = String(decoding: buffer[buffer.startIndex ..< r.lowerBound], as: UTF8.self)
+                        buffer.removeSubrange(buffer.startIndex ..< r.upperBound)
+                        if event == ": ready" { shotsPrimed = true; wait = 1; continue }
+                        guard event.hasPrefix("data: "), let s = try? JSONDecoder().decode(BridgeShot.self, from: Data(event.dropFirst(6).utf8)) else { continue }
+                        guard seenShots.insert(s.id).inserted else { continue }
+                        if s.replay && !shotsPrimed { continue }
+                        await fetch(s)
+                    }
+                }
+            } catch {}
+            streamer.cancel()
+            if Task.isCancelled { return }
+            try? await Task.sleep(for: .seconds(wait))
+            wait = min(15, wait * 2)
+        }
+    }
+
+    private func fetch(_ s: BridgeShot) async {
+        for attempt in 1 ... 3 {
+            do {
+                let (data, resp) = try await session.data(from: baseURL.appendingPathComponent("shot/\(s.id.uuidString)"))
+                guard (resp as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { throw URLError(.badServerResponse) }
+                let name = (s.filename as NSString).lastPathComponent
+                let file = try CaptureStore.write(data, base: saveDirectory, filename: name, date: s.takenAt)
+                captures.send(.image(CapturedImage(url: file, kind: .jpeg, filename: name, takenAt: s.takenAt, shotIndex: s.shotIndex, id: s.id)))
+                captures.send(.finished(shotIndex: s.shotIndex))
+                return
+            } catch {
+                if Task.isCancelled { return }
+                if attempt == 3 { captures.send(.failed(shotIndex: -1, message: "Photo transfer from the Mac failed: \(error.localizedDescription)")); return }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
 
     // Endless responses go through the delegate-based StreamingTask: URLSession's async `bytes(from:)`
     // never delivers the response for a body with no end.
@@ -77,8 +137,6 @@ public final class BridgeBackend: CameraBackend, @unchecked Sendable {
             cont.onTermination = { _ in task.cancel(); streamer.cancel() }
         }
     }
-
-    public func captureEvents() -> AsyncStream<CaptureEvent> { captures.stream() }
 
     public func settings() async -> [CameraSetting] { lock.withLock { last?.cameraSettings } ?? [] }
 

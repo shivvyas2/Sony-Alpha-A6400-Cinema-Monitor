@@ -17,11 +17,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.4.1</string>
+	<string>2.5.0</string>
+	<key>CFBundleVersion</key>
+	<string>11</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>CFBundleVersion</key>
-	<string>10</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -35,11 +37,15 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>CinemaHUD finds and controls your Sony camera, or a Mac running CinemaHUD, on the local network.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>CinemaHUD adds the photos your camera takes to your library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

@@ -29,6 +29,8 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
         var s = CameraState()
         s.availableAPIs = Set(apis)
         s.apply(event: try await client.getEvent(longPolling: false, version: eventVersion))
+        // The first event can repeat the last shot from before this connection; it is not a new one.
+        ignore(s.lastPictureURLs.compactMap { URL(string: $0) })
         // Candidate lists that only come from the getSupported* calls.
         if apis.contains("getSupportedStillSize"), let list = try? await client.getSupportedStillSize() { s.stillSizeCandidates = list }
         if apis.contains("getSupportedMovieQuality"), s.movieQualityCandidates.isEmpty, let list = try? await client.getSupportedMovieQuality() { s.movieQualityCandidates = list }
@@ -131,8 +133,10 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
         return name.isEmpty || name == "/" ? "capture-\(shot).jpg" : name
     }
 
+    func ignore(_ urls: [URL]) { captureLock.withLock { claimed.formUnion(urls) } }
+
     /// Claims URLs not seen before and assigns them one shot index. Returns nil when everything was already handled.
-    private func claim(_ urls: [URL]) -> (shot: Int, urls: [URL])? {
+    func claim(_ urls: [URL]) -> (shot: Int, urls: [URL])? {
         captureLock.withLock {
             let fresh = urls.filter { !claimed.contains($0) }
             guard !fresh.isEmpty else { return nil }
@@ -148,7 +152,8 @@ public final class WiFiBackend: CameraBackend, @unchecked Sendable {
         let now = Date()
         for u in fresh {
             do {
-                let (data, _) = try await URLSession.shared.data(from: u)
+                let (data, resp) = try await URLSession.shared.data(from: u)
+                guard (resp as? HTTPURLResponse)?.statusCode ?? 200 == 200, !data.isEmpty else { throw URLError(.badServerResponse) }
                 let name = Self.postviewFilename(for: u, shot: index)
                 let file = try CaptureStore.write(data, base: saveDirectory, filename: name, date: now)
                 captures.send(.image(CapturedImage(url: file, kind: .jpeg, filename: name, takenAt: now, shotIndex: index)))

@@ -26,8 +26,8 @@ targets:
       path: CinemaHUDMobile/Info.plist
       properties:
         CFBundleDisplayName: CinemaHUD
-        CFBundleShortVersionString: "2.4.1"
-        CFBundleVersion: "10"
+        CFBundleShortVersionString: "2.5.0"
+        CFBundleVersion: "11"
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -37,6 +37,9 @@ targets:
         UIViewControllerBasedStatusBarAppearance: false
         UIRequiresFullScreen: false
         NSLocalNetworkUsageDescription: "CinemaHUD finds and controls your Sony camera, or a Mac running CinemaHUD, on the local network."
+        NSPhotoLibraryAddUsageDescription: "CinemaHUD adds the photos your camera takes to your library."
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         NSBonjourServices: ["_cinemahud._tcp"]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

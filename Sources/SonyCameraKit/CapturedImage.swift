@@ -29,6 +29,15 @@ public enum CaptureEvent: Sendable, Equatable {
     case finished(shotIndex: Int)
     /// Nothing more will arrive for this shot; `message` is user-readable. `shotIndex` -1 = no shot was ever logged.
     case failed(shotIndex: Int, message: String)
+
+    /// The same event with its shot number moved by `base` (-1, "no shot", stays).
+    func offset(by base: Int) -> CaptureEvent {
+        switch self {
+        case .image(let i): return .image(CapturedImage(url: i.url, kind: i.kind, filename: i.filename, takenAt: i.takenAt, shotIndex: i.shotIndex + base, id: i.id))
+        case .finished(let n): return .finished(shotIndex: n + base)
+        case .failed(let n, let m): return .failed(shotIndex: n < 0 ? n : n + base, message: m)
+        }
+    }
 }
 
 /// Where captured files go on disk: `<base>/yyyy-MM-dd/<camera filename>`, never overwriting.
@@ -81,7 +90,7 @@ public final class CaptureBroadcaster: @unchecked Sendable {
 
     public func stream() -> AsyncStream<CaptureEvent> {
         let id = UUID()
-        return AsyncStream { cont in
+        return AsyncStream { cont in      // the builder runs at once: subscribed when this returns
             lock.lock(); continuations[id] = cont; lock.unlock()
             cont.onTermination = { [weak self] _ in self?.remove(id) }
         }
